@@ -1,0 +1,52 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>كوفيكس - لإدارة المساحات</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --brand-navy: #2C2A3A;
+        --brand-copper: #D8A08A;
+        --brand-beige: #F4E9E4;
+        --brand-brown: #6B4F45;
+        --text-primary: #1C1C1C;
+        --text-secondary: #6E6E6E;
+      }
+      body {
+        font-family: 'Tajawal', sans-serif;
+        background-color: #F4E9E4; /* Soft Coffee Beige */
+        color: #1C1C1C;
+      }
+      h1, h2, h3, .font-serif {
+        font-family: 'Playfair Display', 'Tajawal', serif;
+      }
+      .bg-brand-navy { background-color: var(--brand-navy); }
+      .bg-brand-copper { background-color: var(--brand-copper); }
+      .bg-brand-beige { background-color: var(--brand-beige); }
+      .text-brand-copper { color: var(--brand-copper); }
+      .border-brand-copper { border-color: var(--brand-copper); }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "recharts": "https://esm.sh/recharts@^3.7.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
