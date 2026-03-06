@@ -1,26 +1,11 @@
 
 import React, { useState } from 'react';
 import { Plus, Search, Filter, Trash2, Eye } from 'lucide-react';
-import { RoomType, RoomStatus, Room } from '../types';
-
-const INITIAL_ROOMS: Room[] = [
-  { id: '1', name: 'VIP 101', type: RoomType.SINGLE_CLOSED, hourlyPrice: 8, capacity: 1, status: RoomStatus.AVAILABLE },
-  { id: '2', name: 'Focus Desk 01', type: RoomType.SEMI_CLOSED, hourlyPrice: 3.5, capacity: 1, status: RoomStatus.OCCUPIED },
-  { id: '3', name: 'Academy Hall A', type: RoomType.CLASSROOM, hourlyPrice: 10, capacity: 20, status: RoomStatus.AVAILABLE },
-  { id: '4', name: 'Boardroom X', type: RoomType.MEETING_ROOM_QUAD, hourlyPrice: 3, capacity: 4, status: RoomStatus.MAINTENANCE },
-  { id: '5', name: 'Private Pod 05', type: RoomType.SINGLE_ROOM, hourlyPrice: 2, capacity: 1, status: RoomStatus.AVAILABLE },
-];
+import { RoomType, Room } from '../types';
+import { useRooms } from '../context/RoomContext';
 
 const RoomManager: React.FC = () => {
-  const [rooms] = useState<Room[]>(INITIAL_ROOMS);
-
-  const getStatusStyle = (status: RoomStatus) => {
-    switch (status) {
-      case RoomStatus.AVAILABLE: return 'bg-emerald-50 text-emerald-600 border-emerald-100';
-      case RoomStatus.OCCUPIED: return 'bg-[#D8A08A]/10 text-[#D8A08A] border-[#D8A08A]/20';
-      case RoomStatus.MAINTENANCE: return 'bg-gray-100 text-gray-500 border-gray-200';
-    }
-  };
+  const { rooms, setRooms } = useRooms();
 
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-6 duration-700">
@@ -29,7 +14,19 @@ const RoomManager: React.FC = () => {
           <h2 className="text-3xl font-black text-[#2C2A3A] font-serif">إدارة المساحات الفاخرة</h2>
           <p className="text-[#6E6E6E] text-sm mt-1">نسق قاعاتك بأسلوب يليق بعلامة كوفيكس</p>
         </div>
-        <button className="flex items-center justify-center gap-3 bg-[#D8A08A] text-white px-8 py-4 rounded-2xl hover:bg-[#C08A75] transition-all shadow-xl shadow-[#D8A08A]/20 font-black text-sm uppercase tracking-widest">
+        <button 
+          onClick={() => {
+            const newRoom: Room = {
+              id: Math.random().toString(36).substr(2, 9),
+              name: `قاعة جديدة ${rooms.length + 1}`,
+              type: RoomType.SINGLE_CLOSED,
+              hourlyPrice: 5,
+              capacity: 2
+            };
+            setRooms([...rooms, newRoom]);
+          }}
+          className="flex items-center justify-center gap-3 bg-[#D8A08A] text-white px-8 py-4 rounded-2xl hover:bg-[#C08A75] transition-all shadow-xl shadow-[#D8A08A]/20 font-black text-sm uppercase tracking-widest"
+        >
           <Plus size={20} />
           <span>إضافة مساحة جديدة</span>
         </button>
@@ -51,13 +48,6 @@ const RoomManager: React.FC = () => {
             <span>تصفية</span>
           </button>
         </div>
-        <div className="flex gap-3">
-          {Object.values(RoomStatus).map((status) => (
-            <button key={status} className="px-5 py-2.5 text-[11px] font-black uppercase tracking-widest bg-white rounded-xl border border-[#E8E2DE] hover:border-[#D8A08A] hover:text-[#D8A08A] transition-all">
-              {status}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* Rooms Elegant Grid */}
@@ -70,11 +60,6 @@ const RoomManager: React.FC = () => {
                 alt={room.name} 
                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-80"
               />
-              <div className="absolute top-5 left-5">
-                <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border shadow-sm backdrop-blur-md ${getStatusStyle(room.status)}`}>
-                  {room.status}
-                </span>
-              </div>
               <div className="absolute bottom-5 right-5 bg-black/60 backdrop-blur-md px-4 py-2 rounded-xl text-white text-[10px] font-black uppercase tracking-widest">
                 {room.capacity} مقعد متاح
               </div>
@@ -96,7 +81,10 @@ const RoomManager: React.FC = () => {
                 <button className="flex-1 py-3.5 bg-[#2C2A3A] text-white rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-[#D8A08A] transition-all duration-300">
                   تعديل القاعة
                 </button>
-                <button className="p-3.5 bg-[#F4E9E4]/50 text-[#6E6E6E] rounded-2xl hover:text-rose-600 hover:bg-rose-50 transition-all border border-transparent hover:border-rose-100">
+                <button 
+                  onClick={() => setRooms(rooms.filter(r => r.id !== room.id))}
+                  className="p-3.5 bg-[#F4E9E4]/50 text-[#6E6E6E] rounded-2xl hover:text-rose-600 hover:bg-rose-50 transition-all border border-transparent hover:border-rose-100"
+                >
                   <Trash2 size={20} />
                 </button>
                 <button className="p-3.5 bg-[#F4E9E4]/50 text-[#6E6E6E] rounded-2xl hover:text-[#D8A08A] hover:bg-[#F4E9E4] transition-all border border-transparent hover:border-[#E8E2DE]">

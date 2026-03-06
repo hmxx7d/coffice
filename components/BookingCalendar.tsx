@@ -23,10 +23,19 @@ import {
   CreditCard
 } from 'lucide-react';
 
+import { useRooms } from '../context/RoomContext';
+import { useFinance } from '../context/FinanceContext';
+
 const MOCK_CLIENTS = [
-  { id: '1', name: 'سارة خالد', phone: '96891234567' },
-  { id: '2', name: 'محمد العمري', phone: '96895987654' },
-  { id: '3', name: 'عبدالرحمن العتيبي', phone: '96894555666' },
+  { id: '1', name: 'سارة خالد', phone: '96891234567', subscription: { name: 'باقة 50 ساعة', remainingHours: 12 } },
+  { id: '2', name: 'محمد العمري', phone: '96895987654', subscription: null },
+  { id: '3', name: 'عبدالرحمن العتيبي', phone: '96894555666', subscription: { name: 'باقة 100 ساعة', remainingHours: 45 } },
+];
+
+const INITIAL_BOOKINGS = [
+  { id: 'b1', roomId: '1', date: new Date().toISOString().split('T')[0], startTime: '10:00', endTime: '12:00', clientName: 'سارة خالد', phone: '96891234567', services: ['coffee', 'wifi'], status: 'مؤكد', invoiceId: 'INV-0842', totalPrice: '18.500' },
+  { id: 'b2', roomId: '2', date: new Date().toISOString().split('T')[0], startTime: '14:00', endTime: '16:00', clientName: 'محمد العمري', phone: '96895987654', services: ['print'], status: 'انتظار', invoiceId: 'INV-1250', totalPrice: '21.000' },
+  { id: 'b3', roomId: '1', date: new Date().toISOString().split('T')[0], startTime: '15:00', endTime: '18:00', clientName: 'عبدالرحمن العتيبي', phone: '96894555666', services: [], status: 'مؤكد', invoiceId: 'INV-1251', totalPrice: '24.000' },
 ];
 
 const ADDITIONAL_SERVICES = [
@@ -39,6 +48,9 @@ const BookingCalendar: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isRegisteringNew, setIsRegisteringNew] = useState(false);
   const [phoneSearch, setPhoneSearch] = useState('');
+  const [bookings, setBookings] = useState(INITIAL_BOOKINGS);
+  const { rooms } = useRooms();
+  const { addTransaction } = useFinance();
   
   const [bookingData, setBookingData] = useState({
     clientId: '',
@@ -50,17 +62,12 @@ const BookingCalendar: React.FC = () => {
     endTime: '11:00',
     additionalServices: [] as string[],
     status: 'مؤكد',
+    paymentMethod: 'hourly' as 'hourly' | 'subscription',
     invoiceId: `INV-${Math.floor(Math.random() * 10000).toString().padStart(5, '0')}`
   });
 
   const hours = Array.from({ length: 14 }, (_, i) => i + 8);
   const days = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-
-  const rooms = [
-    { id: '1', name: 'VIP 101', price: 8.000 },
-    { id: '2', name: 'Academy A', price: 10.000 },
-    { id: '3', name: 'Focus Desk', price: 3.500 },
-  ];
 
   const foundClient = useMemo(() => {
     if (!phoneSearch) return null;
@@ -72,12 +79,12 @@ const BookingCalendar: React.FC = () => {
     let total = 0;
     
     // Room price
-    if (selectedRoom) {
+    if (selectedRoom && bookingData.paymentMethod === 'hourly') {
       const start = parseInt(bookingData.startTime.split(':')[0]);
       const end = parseInt(bookingData.endTime.split(':')[0]);
       const duration = end - start;
       if (duration > 0) {
-        total += selectedRoom.price * duration;
+        total += selectedRoom.hourlyPrice * duration;
       }
     }
 
@@ -88,6 +95,12 @@ const BookingCalendar: React.FC = () => {
     });
 
     return total.toFixed(3);
+  };
+
+  const getBookingDuration = () => {
+    const start = parseInt(bookingData.startTime.split(':')[0]);
+    const end = parseInt(bookingData.endTime.split(':')[0]);
+    return Math.max(0, end - start);
   };
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -138,6 +151,53 @@ const BookingCalendar: React.FC = () => {
         </div>
       </header>
 
+      {/* Room Timelines */}
+      <div className="bg-white rounded-[40px] border border-[#E8E2DE] shadow-xl p-8 mb-8">
+        <h3 className="font-serif italic font-black text-xl text-[#2C2A3A] mb-6">حالة القاعات اليوم</h3>
+        <div className="space-y-6">
+          {rooms.map(room => {
+            return (
+              <div key={room.id} className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="font-bold text-[#2C2A3A]">{room.name}</span>
+                  <span className="text-[10px] font-black text-[#D8A08A] bg-[#F4E9E4] px-3 py-1 rounded-full">{room.hourlyPrice.toFixed(3)} ر.ع/س</span>
+                </div>
+                <div className="h-10 bg-[#F4E9E4]/50 rounded-xl flex overflow-hidden relative border border-[#E8E2DE]">
+                  {hours.map(hour => {
+                    const booking = bookings.find(b => b.roomId === room.id && parseInt(b.startTime.split(':')[0]) <= hour && parseInt(b.endTime.split(':')[0]) > hour);
+                    const isBooked = !!booking;
+                    return (
+                      <div 
+                        key={hour} 
+                        className={`flex-1 border-r border-white/50 last:border-0 relative group transition-all duration-300 ${isBooked ? (booking.status === 'مؤكد' ? 'bg-[#2C2A3A]' : 'bg-[#D8A08A]') : 'hover:bg-[#E8E2DE] cursor-pointer'}`}
+                        onClick={() => {
+                          if (!isBooked) {
+                            setBookingData(prev => ({ ...prev, room: room.id, startTime: `${hour.toString().padStart(2, '0')}:00`, endTime: `${(hour+1).toString().padStart(2, '0')}:00` }));
+                            setIsModalOpen(true);
+                          }
+                        }}
+                      >
+                        {/* Tooltip */}
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block bg-[#2C2A3A] text-white text-[10px] py-1.5 px-3 rounded-lg whitespace-nowrap z-10 shadow-xl font-bold">
+                          {hour.toString().padStart(2, '0')}:00 - {(hour+1).toString().padStart(2, '0')}:00
+                          <br/>
+                          {isBooked ? <span className="text-[#D8A08A]">{booking.clientName} ({booking.status})</span> : <span className="text-emerald-400">متاح للحجز</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="flex justify-between px-2">
+                  <span className="text-[9px] font-bold text-[#6E6E6E]">08:00</span>
+                  <span className="text-[9px] font-bold text-[#6E6E6E]">15:00</span>
+                  <span className="text-[9px] font-bold text-[#6E6E6E]">22:00</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
       {/* Main Booking List View */}
       <div className="bg-white rounded-[40px] border border-[#E8E2DE] shadow-xl overflow-hidden">
         <div className="p-8 border-b border-[#F4E9E4] bg-[#F4E9E4]/10 flex items-center justify-between flex-wrap gap-4">
@@ -164,29 +224,29 @@ const BookingCalendar: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#F4E9E4]">
-              {[
-                { client: 'سارة خالد', phone: '96891234567', room: 'VIP 101', date: '2024-06-12', time: '10:00 - 12:00', services: ['قهوة', 'إنترنت'], status: 'مؤكد', inv: 'INV-0842', price: '18.500' },
-                { client: 'محمد العمري', phone: '96895987654', room: 'Academy A', date: '2024-06-12', time: '14:00 - 16:00', services: ['طباعة'], status: 'انتظار', inv: 'INV-1250', price: '21.000' },
-              ].map((b, i) => (
-                <tr key={i} className="group hover:bg-[#F4E9E4]/30 transition-colors">
+              {bookings.map((b) => {
+                const roomName = rooms.find(r => r.id === b.roomId)?.name || 'غير معروف';
+                const serviceNames = b.services.map(sId => ADDITIONAL_SERVICES.find(s => s.id === sId)?.name || sId);
+                return (
+                <tr key={b.id} className="group hover:bg-[#F4E9E4]/30 transition-colors">
                   <td className="px-8 py-6">
                     <div className="flex flex-col">
-                      <span className="font-bold text-[#2C2A3A]">{b.client}</span>
+                      <span className="font-bold text-[#2C2A3A]">{b.clientName}</span>
                       <span className="text-[10px] text-[#D8A08A] font-mono tracking-tighter">{b.phone}</span>
                     </div>
                   </td>
                   <td className="px-6 py-6">
-                    <span className="text-sm font-bold text-[#6B4F45]">{b.room}</span>
+                    <span className="text-sm font-bold text-[#6B4F45]">{roomName}</span>
                   </td>
                   <td className="px-6 py-6 text-center">
                     <div className="inline-flex flex-col items-center bg-[#F4E9E4] px-4 py-1.5 rounded-xl border border-[#E8E2DE]">
-                      <span className="text-[10px] font-black text-[#2C2A3A]">{b.time}</span>
+                      <span className="text-[10px] font-black text-[#2C2A3A]">{b.startTime} - {b.endTime}</span>
                       <span className="text-[8px] text-[#6E6E6E] font-bold">{b.date}</span>
                     </div>
                   </td>
                   <td className="px-6 py-6">
                     <div className="flex gap-1 flex-wrap">
-                      {b.services.map((s, si) => (
+                      {serviceNames.map((s, si) => (
                         <span key={si} className="px-2 py-0.5 bg-white border border-[#E8E2DE] rounded-md text-[8px] font-black text-[#D8A08A]">{s}</span>
                       ))}
                     </div>
@@ -197,13 +257,13 @@ const BookingCalendar: React.FC = () => {
                     </span>
                   </td>
                   <td className="px-6 py-6">
-                    <span className="text-[11px] font-mono font-black text-[#6E6E6E] underline cursor-pointer hover:text-[#2C2A3A]">{b.inv}</span>
+                    <span className="text-[11px] font-mono font-black text-[#6E6E6E] underline cursor-pointer hover:text-[#2C2A3A]">{b.invoiceId}</span>
                   </td>
                   <td className="px-8 py-6">
-                    <span className="text-lg font-serif italic font-black text-[#2C2A3A] tracking-tighter">{b.price} <span className="text-[9px] not-italic opacity-50">ر.ع</span></span>
+                    <span className="text-lg font-serif italic font-black text-[#2C2A3A] tracking-tighter">{b.totalPrice} <span className="text-[9px] not-italic opacity-50">ر.ع</span></span>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>
@@ -314,7 +374,7 @@ const BookingCalendar: React.FC = () => {
                     onChange={(e) => setBookingData({...bookingData, room: e.target.value})}
                   >
                     <option value="">اختر المساحة المناسبة...</option>
-                    {rooms.map(r => <option key={r.id} value={r.id}>{r.name} - ({r.price.toFixed(3)} ر.ع/س)</option>)}
+                    {rooms.map(r => <option key={r.id} value={r.id}>{r.name} - ({r.hourlyPrice.toFixed(3)} ر.ع/س)</option>)}
                   </select>
                 </div>
 
@@ -331,6 +391,48 @@ const BookingCalendar: React.FC = () => {
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-[#6E6E6E] text-center block italic">إلى</label>
                     <input type="time" className="w-full bg-white border border-[#E8E2DE] rounded-xl px-4 py-4 outline-none text-center font-black" value={bookingData.endTime} onChange={(e) => setBookingData({...bookingData, endTime: e.target.value})} />
+                  </div>
+                </div>
+
+                {/* Payment Method Selection */}
+                <div className="space-y-3 col-span-2 pt-4">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">طريقة الدفع / الخصم</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setBookingData({...bookingData, paymentMethod: 'hourly'})}
+                      className={`p-4 rounded-2xl border text-right transition-all ${bookingData.paymentMethod === 'hourly' ? 'bg-[#2C2A3A] border-[#2C2A3A] text-white shadow-lg' : 'bg-white border-[#E8E2DE] text-[#2C2A3A] hover:border-[#D8A08A]'}`}
+                    >
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-black text-sm">دفع بالساعات</span>
+                        {bookingData.paymentMethod === 'hourly' && <CheckCircle2 size={16} className="text-[#D8A08A]" />}
+                      </div>
+                      <p className={`text-[10px] font-bold ${bookingData.paymentMethod === 'hourly' ? 'text-white/60' : 'text-[#6E6E6E]'}`}>
+                        سيتم حساب التكلفة بناءً على سعر القاعة
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={!foundClient?.subscription}
+                      onClick={() => setBookingData({...bookingData, paymentMethod: 'subscription'})}
+                      className={`p-4 rounded-2xl border text-right transition-all ${!foundClient?.subscription ? 'opacity-50 cursor-not-allowed bg-gray-50' : bookingData.paymentMethod === 'subscription' ? 'bg-[#D8A08A] border-[#D8A08A] text-white shadow-lg' : 'bg-white border-[#E8E2DE] text-[#2C2A3A] hover:border-[#D8A08A]'}`}
+                    >
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-black text-sm">خصم من الباقة</span>
+                        {bookingData.paymentMethod === 'subscription' && <CheckCircle2 size={16} className="text-white" />}
+                      </div>
+                      <p className={`text-[10px] font-bold ${bookingData.paymentMethod === 'subscription' ? 'text-white/80' : 'text-[#6E6E6E]'}`}>
+                        {foundClient?.subscription 
+                          ? `${foundClient.subscription.name} (متبقي ${foundClient.subscription.remainingHours} ساعة)`
+                          : 'لا توجد باقة نشطة للعميل'}
+                      </p>
+                      {bookingData.paymentMethod === 'subscription' && foundClient?.subscription && (
+                        <p className="text-[9px] font-black mt-2 text-white/90 bg-black/10 inline-block px-2 py-1 rounded">
+                          سيتم خصم {getBookingDuration()} ساعة من الرصيد
+                        </p>
+                      )}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -363,6 +465,32 @@ const BookingCalendar: React.FC = () => {
                   disabled={(!foundClient && !isRegisteringNew) || !bookingData.room || (isRegisteringNew && !bookingData.clientName)}
                   className="flex-1 py-5 bg-[#2C2A3A] text-white rounded-[24px] font-black uppercase tracking-widest text-[11px] flex items-center justify-center gap-3 shadow-xl hover:bg-[#D8A08A] transition-all active:scale-[0.98] disabled:opacity-30"
                   onClick={() => { 
+                    const totalPrice = calculateTotalPrice();
+                    const newBooking = {
+                      id: `b${Math.random().toString(36).substr(2, 9)}`,
+                      roomId: bookingData.room,
+                      date: bookingData.date,
+                      startTime: bookingData.startTime,
+                      endTime: bookingData.endTime,
+                      clientName: bookingData.clientName,
+                      phone: bookingData.clientPhone || phoneSearch,
+                      services: bookingData.additionalServices,
+                      status: bookingData.status,
+                      invoiceId: bookingData.invoiceId,
+                      totalPrice: totalPrice
+                    };
+                    setBookings([...bookings, newBooking]);
+                    
+                    if (bookingData.paymentMethod === 'hourly' && parseFloat(totalPrice) > 0) {
+                      addTransaction({
+                        type: 'INCOME',
+                        category: 'ROOM_BOOKING',
+                        amount: parseFloat(totalPrice),
+                        description: `حجز قاعة - ${bookingData.clientName}`,
+                        referenceId: bookingData.invoiceId
+                      });
+                    }
+
                     alert(`تم تأكيد الحجز برقم فاتورة: ${bookingData.invoiceId}`); 
                     setIsModalOpen(false); 
                   }}

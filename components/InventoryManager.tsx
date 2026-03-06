@@ -24,71 +24,20 @@ import {
   Zap,
   Layout
 } from 'lucide-react';
+import { useCafeInventory, Material, ProductData, RecipeIngredient } from '../context/CafeInventoryContext';
 
 type InventoryTab = 'products' | 'materials' | 'recipes' | 'reports';
 
-interface Material {
-  id: string;
-  name: string;
-  unit: string;
-  current: number;
-  min: number;
-  cost: number;
-  supplier: string;
-}
-
-interface RecipeIngredient {
-  materialId: string;
-  quantity: number;
-}
-
-interface ProductData {
-  id: string;
-  name: string;
-  category: string;
-  price: number;
-  cost: number;
-  stock: number | string;
-  supplier: string;
-  description?: string;
-  recipe?: RecipeIngredient[];
-}
-
-const INITIAL_MATERIALS: Material[] = [
-  { id: 'm1', name: 'بن كولومبي مختص', unit: 'جرام', current: 12500, min: 5000, cost: 0.0085, supplier: 'محمصة الشرق' },
-  { id: 'm2', name: 'حليب كامل الدسم', unit: 'ملل', current: 48000, min: 20000, cost: 0.0006, supplier: 'مزرعة الخير' },
-  { id: 'm3', name: 'سيروب فانيلا', unit: 'ملل', current: 1500, min: 1000, cost: 0.05, supplier: 'مونين' },
-  { id: 'm4', name: 'أكواب كوفيكس 12oz', unit: 'قطعة', current: 150, min: 500, cost: 0.100, supplier: 'مصنع الورق' },
-];
-
-const INITIAL_PRODUCTS: ProductData[] = [
-  { 
-    id: '1', name: 'إسبريسو', category: 'قهوة ساخنة', price: 1.200, cost: 0.250, stock: 'وصفة', supplier: 'محلي',
-    recipe: [
-      { materialId: 'm1', quantity: 18 },
-      { materialId: 'm4', quantity: 1 },
-    ]
-  },
-  { 
-    id: '2', name: 'لاتيه كولد برو', category: 'قهوة باردة', price: 2.200, cost: 0.450, stock: 'وصفة', supplier: 'محلي',
-    recipe: [
-      { materialId: 'm1', quantity: 20 },
-      { materialId: 'm2', quantity: 200 },
-      { materialId: 'm4', quantity: 1 },
-    ]
-  },
-  { id: '3', name: 'كرواسون لوز', category: 'مخبوزات', price: 1.800, cost: 0.900, stock: 15, supplier: 'مخبز باريس' },
-];
-
 const InventoryManager: React.FC = () => {
   const [activeTab, setActiveTab] = useState<InventoryTab>('products');
-  const [products, setProducts] = useState<ProductData[]>(INITIAL_PRODUCTS);
-  const [materials] = useState<Material[]>(INITIAL_MATERIALS);
+  const { products, setProducts, materials, setMaterials } = useCafeInventory();
   
   // Modal States
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false);
+  const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductData | null>(null);
+  const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
 
   // Form State
   const [formData, setFormData] = useState<Partial<ProductData>>({
@@ -98,7 +47,17 @@ const InventoryManager: React.FC = () => {
     cost: 0,
     stock: 0,
     supplier: '',
-    description: ''
+    description: '',
+    recipe: []
+  });
+
+  const [materialFormData, setMaterialFormData] = useState<Partial<Material>>({
+    name: '',
+    unit: '',
+    current: 0,
+    min: 0,
+    cost: 0,
+    supplier: ''
   });
 
   const calculateProductCostFromRecipe = (recipe: RecipeIngredient[]) => {
@@ -117,20 +76,54 @@ const InventoryManager: React.FC = () => {
       cost: 0,
       stock: 0,
       supplier: '',
-      description: ''
+      description: '',
+      recipe: []
     });
     setIsProductModalOpen(true);
   };
 
   const openEditProductModal = (product: ProductData) => {
     setEditingProduct(product);
-    setFormData({ ...product });
+    setFormData({ ...product, recipe: product.recipe || [] });
     setIsProductModalOpen(true);
+  };
+
+  const addIngredientToForm = () => {
+    setFormData({
+      ...formData,
+      recipe: [...(formData.recipe || []), { materialId: materials[0]?.id || '', quantity: 0 }]
+    });
+  };
+
+  const updateIngredientInForm = (index: number, field: keyof RecipeIngredient, value: any) => {
+    const newRecipe = [...(formData.recipe || [])];
+    newRecipe[index] = { ...newRecipe[index], [field]: value };
+    
+    const newCost = calculateProductCostFromRecipe(newRecipe);
+    
+    setFormData({
+      ...formData,
+      recipe: newRecipe,
+      cost: newCost
+    });
+  };
+
+  const removeIngredientFromForm = (index: number) => {
+    const newRecipe = [...(formData.recipe || [])];
+    newRecipe.splice(index, 1);
+    
+    const newCost = calculateProductCostFromRecipe(newRecipe);
+    
+    setFormData({
+      ...formData,
+      recipe: newRecipe,
+      cost: newCost
+    });
   };
 
   const handleProductSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const isRecipeProduct = formData.category?.includes('قهوة');
+    const isRecipeProduct = formData.recipe && formData.recipe.length > 0;
     
     const productPayload: ProductData = {
       ...(formData as ProductData),
@@ -166,6 +159,48 @@ const InventoryManager: React.FC = () => {
   const deleteProduct = (id: string) => {
     if (window.confirm('هل أنت متأكد من حذف هذا المنتج؟')) {
       setProducts(products.filter(p => p.id !== id));
+    }
+  };
+
+  const openAddMaterialModal = () => {
+    setEditingMaterial(null);
+    setMaterialFormData({
+      name: '',
+      unit: '',
+      current: 0,
+      min: 0,
+      cost: 0,
+      supplier: ''
+    });
+    setIsMaterialModalOpen(true);
+  };
+
+  const openEditMaterialModal = (material: Material) => {
+    setEditingMaterial(material);
+    setMaterialFormData({ ...material });
+    setIsMaterialModalOpen(true);
+  };
+
+  const handleMaterialSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const materialPayload: Material = {
+      ...(materialFormData as Material),
+      id: editingMaterial?.id || Math.random().toString(36).substr(2, 9),
+    };
+
+    if (editingMaterial) {
+      setMaterials(materials.map(m => m.id === editingMaterial.id ? materialPayload : m));
+    } else {
+      setMaterials([materialPayload, ...materials]);
+    }
+    
+    setIsMaterialModalOpen(false);
+  };
+
+  const deleteMaterial = (id: string) => {
+    if (window.confirm('هل أنت متأكد من حذف هذه المادة؟')) {
+      setMaterials(materials.filter(m => m.id !== id));
     }
   };
 
@@ -336,15 +371,19 @@ const InventoryManager: React.FC = () => {
                     required
                     type="number" 
                     step="0.001"
-                    className="w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold"
+                    readOnly={formData.recipe && formData.recipe.length > 0}
+                    className={`w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold ${(formData.recipe && formData.recipe.length > 0) ? 'opacity-70 cursor-not-allowed' : ''}`}
                     value={formData.cost}
                     onChange={e => setFormData({...formData, cost: Number(e.target.value)})}
                   />
+                  {(formData.recipe && formData.recipe.length > 0) && (
+                    <p className="text-[9px] text-[#D8A08A] font-bold">يتم حساب التكلفة تلقائياً من المكونات</p>
+                  )}
                 </div>
 
-                {!formData.category?.includes('قهوة') && (
+                {(!formData.recipe || formData.recipe.length === 0) && (
                   <div className="space-y-2 col-span-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">الكمية المتوفرة (للمخبوزات/الحلويات)</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">الكمية المتوفرة</label>
                     <input 
                       type="number" 
                       className="w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold"
@@ -353,6 +392,55 @@ const InventoryManager: React.FC = () => {
                     />
                   </div>
                 )}
+
+                <div className="space-y-4 col-span-2 pt-4 border-t border-[#E8E2DE]">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">مكونات الوصفة (اختياري)</label>
+                    <button 
+                      type="button"
+                      onClick={addIngredientToForm}
+                      className="text-[10px] font-black uppercase tracking-widest text-[#D8A08A] flex items-center gap-1 hover:text-[#2C2A3A]"
+                    >
+                      <Plus size={14} /> إضافة مكون
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    {(formData.recipe || []).map((ing, idx) => (
+                      <div key={idx} className="flex items-center gap-3">
+                        <select
+                          className="flex-1 px-4 py-3 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold text-sm"
+                          value={ing.materialId}
+                          onChange={e => updateIngredientInForm(idx, 'materialId', e.target.value)}
+                        >
+                          <option value="">اختر المادة الخام...</option>
+                          {materials.map(m => (
+                            <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          placeholder="الكمية"
+                          className="w-24 px-4 py-3 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold text-sm text-center"
+                          value={ing.quantity || ''}
+                          onChange={e => updateIngredientInForm(idx, 'quantity', Number(e.target.value))}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeIngredientFromForm(idx)}
+                          className="p-3 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    ))}
+                    {(!formData.recipe || formData.recipe.length === 0) && (
+                      <div className="text-center py-4 bg-[#F4E9E4]/20 rounded-xl border border-dashed border-[#E8E2DE]">
+                        <p className="text-xs text-[#6E6E6E] font-bold">لم يتم إضافة مكونات بعد. سيتم اعتبار هذا المنتج كعنصر جاهز.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
                 <div className="space-y-2 col-span-2">
                   <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">الوصف</label>
@@ -485,6 +573,12 @@ const InventoryManager: React.FC = () => {
         <div className="bg-white rounded-[40px] border border-[#E8E2DE] shadow-xl overflow-hidden">
           <div className="p-8 border-b border-[#F4E9E4] bg-[#F4E9E4]/10 flex items-center justify-between">
             <h3 className="font-serif italic font-black text-xl text-[#2C2A3A]">قائمة المواد الخام</h3>
+            <button 
+              onClick={openAddMaterialModal}
+              className="flex items-center gap-3 bg-[#D8A08A] text-white px-6 py-2.5 rounded-2xl hover:bg-[#C08A75] transition-all shadow-xl shadow-[#D8A08A]/20 font-black text-[11px] uppercase tracking-widest"
+            >
+              <Plus size={16} /> إضافة مادة خام
+            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-right">
@@ -494,6 +588,7 @@ const InventoryManager: React.FC = () => {
                   <th className="px-6 py-5">المورد</th>
                   <th className="px-6 py-5 text-center">المستوى الحالي</th>
                   <th className="px-6 py-5">تكلفة الوحدة</th>
+                  <th className="px-6 py-5 text-center">إجراءات</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F4E9E4]">
@@ -503,10 +598,130 @@ const InventoryManager: React.FC = () => {
                     <td className="px-6 py-6 text-xs text-[#6E6E6E] font-bold">{m.supplier}</td>
                     <td className="px-6 py-6 text-center text-xs font-black text-[#D8A08A]">{m.current} {m.unit}</td>
                     <td className="px-6 py-6 font-serif italic font-black text-[#2C2A3A]">{m.cost.toFixed(4)} ر.ع / {m.unit}</td>
+                    <td className="px-6 py-6 flex items-center justify-center gap-2">
+                      <button 
+                        onClick={() => openEditMaterialModal(m)}
+                        className="p-2 bg-[#2C2A3A] text-white rounded-lg hover:bg-[#D8A08A] transition-all"
+                      >
+                        <Edit size={14} />
+                      </button>
+                      <button 
+                        onClick={() => deleteMaterial(m.id)}
+                        className="p-2 bg-rose-50 text-rose-600 rounded-lg border border-rose-100 hover:bg-rose-600 hover:text-white transition-all"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Material Add/Edit Modal */}
+      {isMaterialModalOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-[#2C2A3A]/90 backdrop-blur-md animate-in fade-in duration-500" onClick={() => setIsMaterialModalOpen(false)} />
+          <div className="relative bg-white w-full max-w-2xl rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-500 border border-[#E8E2DE]">
+            <div className="p-8 bg-[#2C2A3A] text-white flex justify-between items-center">
+               <div className="flex items-center gap-4">
+                 <div className="w-14 h-14 bg-[#D8A08A] rounded-2xl flex items-center justify-center text-white"><Droplets size={28} /></div>
+                 <div>
+                   <h3 className="text-2xl font-black font-serif italic">{editingMaterial ? 'تعديل المادة الخام' : 'إضافة مادة خام جديدة'}</h3>
+                   <p className="text-white/40 text-[10px] font-bold uppercase tracking-widest mt-1">إدارة المخزون الأساسي</p>
+                 </div>
+               </div>
+               <button onClick={() => setIsMaterialModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full"><X size={24} /></button>
+            </div>
+
+            <form onSubmit={handleMaterialSubmit} className="p-8 space-y-6 max-h-[80vh] overflow-y-auto">
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-2 col-span-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">اسم المادة</label>
+                  <input 
+                    required
+                    type="text" 
+                    className="w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold"
+                    value={materialFormData.name}
+                    onChange={e => setMaterialFormData({...materialFormData, name: e.target.value})}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">وحدة القياس</label>
+                  <input 
+                    required
+                    type="text" 
+                    placeholder="مثال: جرام، ملل، قطعة"
+                    className="w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold"
+                    value={materialFormData.unit}
+                    onChange={e => setMaterialFormData({...materialFormData, unit: e.target.value})}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">المورد</label>
+                  <input 
+                    type="text" 
+                    className="w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold"
+                    value={materialFormData.supplier}
+                    onChange={e => setMaterialFormData({...materialFormData, supplier: e.target.value})}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">الكمية الحالية</label>
+                  <input 
+                    required
+                    type="number" 
+                    className="w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold"
+                    value={materialFormData.current}
+                    onChange={e => setMaterialFormData({...materialFormData, current: Number(e.target.value)})}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">الحد الأدنى للتنبيه</label>
+                  <input 
+                    required
+                    type="number" 
+                    className="w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold"
+                    value={materialFormData.min}
+                    onChange={e => setMaterialFormData({...materialFormData, min: Number(e.target.value)})}
+                  />
+                </div>
+
+                <div className="space-y-2 col-span-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">تكلفة الوحدة (ر.ع)</label>
+                  <input 
+                    required
+                    type="number" 
+                    step="0.0001"
+                    className="w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold"
+                    value={materialFormData.cost}
+                    onChange={e => setMaterialFormData({...materialFormData, cost: Number(e.target.value)})}
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <button 
+                  type="button"
+                  onClick={() => setIsMaterialModalOpen(false)}
+                  className="flex-1 py-4 border border-[#E8E2DE] rounded-2xl font-black uppercase tracking-widest text-[11px] text-[#6E6E6E] hover:bg-[#F4E9E4]"
+                >
+                  إلغاء
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-4 bg-[#D8A08A] text-white rounded-2xl font-black uppercase tracking-widest text-[11px] hover:bg-[#2C2A3A] transition-all shadow-xl"
+                >
+                  {editingMaterial ? 'حفظ التغييرات' : 'إضافة المادة'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

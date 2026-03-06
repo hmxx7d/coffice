@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { 
   DollarSign, 
   TrendingUp, 
@@ -20,15 +20,29 @@ import {
   ResponsiveContainer,
   Cell
 } from 'recharts';
-
-const data = [
-  { name: 'الاشتراكات', value: 12000, color: '#2C2A3A' },
-  { name: 'حجوزات الساعات', value: 4500, color: '#D8A08A' },
-  { name: 'مبيعات الكافيه', value: 2800, color: '#6B4F45' },
-  { name: 'خدمات إضافية', value: 1200, color: '#E8E2DE' },
-];
+import { useFinance } from '../context/FinanceContext';
 
 const FinancialReports: React.FC = () => {
+  const { transactions, getSummary } = useFinance();
+  const summary = getSummary();
+
+  const chartData = useMemo(() => {
+    return [
+      { name: 'الاشتراكات', value: summary.revenueByCategory.SUBSCRIPTION, color: '#2C2A3A' },
+      { name: 'حجوزات الساعات', value: summary.revenueByCategory.ROOM_BOOKING, color: '#D8A08A' },
+      { name: 'مبيعات الكافيه', value: summary.revenueByCategory.CAFE_SALE, color: '#6B4F45' },
+      { name: 'خدمات إضافية', value: summary.revenueByCategory.ADDITIONAL_SERVICE, color: '#E8E2DE' },
+    ].filter(item => item.value > 0);
+  }, [summary]);
+
+  const recentTransactions = useMemo(() => {
+    return [...transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
+  }, [transactions]);
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('ar-OM', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
   return (
     <div className="space-y-10 animate-in fade-in duration-700">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -58,8 +72,8 @@ const FinancialReports: React.FC = () => {
               <ArrowUp size={14} /> 12% نمو
             </div>
           </div>
-          <p className="text-[10px] font-black uppercase tracking-widest text-[#6E6E6E] mb-1">إجمالي الإيرادات السنوية</p>
-          <h3 className="text-4xl font-serif italic font-black text-[#2C2A3A] tracking-tighter">2.050 <span className="text-lg not-italic opacity-50">ر.ع</span></h3>
+          <p className="text-[10px] font-black uppercase tracking-widest text-[#6E6E6E] mb-1">إجمالي الإيرادات</p>
+          <h3 className="text-4xl font-serif italic font-black text-[#2C2A3A] tracking-tighter">{summary.totalRevenue.toFixed(3)} <span className="text-lg not-italic opacity-50">ر.ع</span></h3>
         </div>
 
         <div className="bg-[#2C2A3A] p-10 rounded-[40px] border border-white/5 shadow-2xl relative overflow-hidden group text-white">
@@ -70,7 +84,7 @@ const FinancialReports: React.FC = () => {
             </div>
           </div>
           <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">المصروفات التشغيلية</p>
-          <h3 className="text-4xl font-serif italic font-black text-[#D8A08A] tracking-tighter">0.420 <span className="text-lg not-italic opacity-30">ر.ع</span></h3>
+          <h3 className="text-4xl font-serif italic font-black text-[#D8A08A] tracking-tighter">{summary.totalExpenses.toFixed(3)} <span className="text-lg not-italic opacity-30">ر.ع</span></h3>
         </div>
 
         <div className="bg-white p-10 rounded-[40px] border border-[#E8E2DE] shadow-sm relative overflow-hidden group">
@@ -82,7 +96,7 @@ const FinancialReports: React.FC = () => {
             </div>
           </div>
           <p className="text-[10px] font-black uppercase tracking-widest text-[#6E6E6E] mb-1">صافي الأرباح المحققة</p>
-          <h3 className="text-4xl font-serif italic font-black text-[#2C2A3A] tracking-tighter">1.630 <span className="text-lg not-italic opacity-50">ر.ع</span></h3>
+          <h3 className="text-4xl font-serif italic font-black text-[#2C2A3A] tracking-tighter">{summary.netProfit.toFixed(3)} <span className="text-lg not-italic opacity-50">ر.ع</span></h3>
         </div>
       </div>
 
@@ -94,16 +108,17 @@ const FinancialReports: React.FC = () => {
           </h3>
           <div className="h-80 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data} layout="vertical" margin={{ left: 40, right: 20 }}>
+              <BarChart data={chartData} layout="vertical" margin={{ left: 40, right: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#F4E9E4" />
                 <XAxis type="number" hide />
                 <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#6E6E6E', fontWeight: 'bold' }} />
                 <Tooltip 
                   cursor={{ fill: '#F4E9E4' }}
                   contentStyle={{ borderRadius: '24px', border: '1px solid #E8E2DE', padding: '20px', boxShadow: '0 25px 50px -12px rgb(0 0 0 / 0.1)' }}
+                  formatter={(value: number) => [`${value.toFixed(3)} ر.ع`, 'القيمة']}
                 />
                 <Bar dataKey="value" radius={[0, 15, 15, 0]} barSize={36}>
-                  {data.map((entry, index) => (
+                  {chartData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Bar>
@@ -121,29 +136,28 @@ const FinancialReports: React.FC = () => {
             <button className="text-[10px] font-black uppercase tracking-widest text-[#D8A08A] hover:underline">السجل المالي الكامل</button>
           </div>
           <div className="space-y-6">
-            {[
-              { id: '#INV-402', client: 'سارة خالد', amount: '45.000 ر.ع', date: '2024/05/28', status: 'مقبولة' },
-              { id: '#INV-401', client: 'محمد العمري', amount: '8.000 ر.ع', date: '2024/05/27', status: 'مقبولة' },
-              { id: '#INV-400', client: 'نورة السعيد', amount: '12.000 ر.ع', date: '2024/05/27', status: 'قيد المراجعة' },
-            ].map((inv, idx) => (
-              <div key={idx} className="flex items-center justify-between p-6 bg-[#F4E9E4]/20 rounded-[28px] hover:bg-[#F4E9E4]/50 transition-all cursor-pointer border border-transparent hover:border-[#D8A08A]/20 group">
+            {recentTransactions.map((txn) => (
+              <div key={txn.id} className="flex items-center justify-between p-6 bg-[#F4E9E4]/20 rounded-[28px] hover:bg-[#F4E9E4]/50 transition-all cursor-pointer border border-transparent hover:border-[#D8A08A]/20 group">
                 <div className="flex items-center gap-5">
                   <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-[#6E6E6E] group-hover:text-[#D8A08A] shadow-sm transition-colors border border-[#E8E2DE]">
-                    <FileText size={22} />
+                    {txn.type === 'INCOME' ? <ArrowUp size={22} className="text-emerald-500" /> : <ArrowDown size={22} className="text-rose-500" />}
                   </div>
                   <div>
-                    <p className="text-sm font-black text-[#2C2A3A] tracking-tighter">{inv.id}</p>
-                    <p className="text-[10px] font-bold text-[#6E6E6E] uppercase tracking-widest">{inv.client} • {inv.date}</p>
+                    <p className="text-sm font-black text-[#2C2A3A] tracking-tighter">{txn.description}</p>
+                    <p className="text-[10px] font-bold text-[#6E6E6E] uppercase tracking-widest">{formatDate(txn.date)} • {txn.referenceId || txn.id}</p>
                   </div>
                 </div>
                 <div className="text-left">
-                  <p className="text-lg font-serif italic font-black text-[#2C2A3A] mb-1">{inv.amount}</p>
-                  <span className={`text-[9px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full ${inv.status === 'مقبولة' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-[#D8A08A]/10 text-[#D8A08A] border border-[#D8A08A]/20'}`}>
-                    {inv.status}
+                  <p className="text-lg font-serif italic font-black text-[#2C2A3A] mb-1">{txn.amount.toFixed(3)} ر.ع</p>
+                  <span className={`text-[9px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full ${txn.type === 'INCOME' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100'}`}>
+                    {txn.type === 'INCOME' ? 'إيراد' : 'مصروف'}
                   </span>
                 </div>
               </div>
             ))}
+            {recentTransactions.length === 0 && (
+              <div className="text-center py-10 text-[#6E6E6E] font-bold text-sm">لا توجد عمليات مالية مسجلة بعد</div>
+            )}
           </div>
         </div>
       </div>

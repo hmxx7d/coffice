@@ -18,7 +18,8 @@ import {
   PlusCircle,
   History
 } from 'lucide-react';
-import { CAFE_MENU } from '../constants';
+import { useCafeInventory } from '../context/CafeInventoryContext';
+import { useFinance } from '../context/FinanceContext';
 
 type OrderStatus = 'جديد' | 'قيد التحضير' | 'جاهز' | 'تم التسليم';
 
@@ -40,13 +41,15 @@ interface CafeOrder {
 }
 
 const EXTRAS = [
-  { name: 'إضافة إسبريسو', price: 5 },
-  { name: 'حليب نباتي', price: 3 },
-  { name: 'نكهة كراميل', price: 2 },
-  { name: 'نكهة فانيلا', price: 2 },
+  { name: 'إضافة إسبريسو', price: 0.500 },
+  { name: 'حليب نباتي', price: 0.300 },
+  { name: 'نكهة كراميل', price: 0.200 },
+  { name: 'نكهة فانيلا', price: 0.200 },
 ];
 
 const CafeSystem: React.FC = () => {
+  const { products, processOrder } = useCafeInventory();
+  const { addTransaction } = useFinance();
   const [activeTab, setActiveTab] = useState<'menu' | 'orders'>('menu');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedClient, setSelectedClient] = useState<string>('');
@@ -108,11 +111,12 @@ const CafeSystem: React.FC = () => {
     return (item.price + extrasTotal) * item.quantity;
   };
 
-  const total = cart.reduce((acc, item) => acc + calculateItemTotal(item), 0) / 10;
+  const total = cart.reduce((acc, item) => acc + calculateItemTotal(item), 0);
 
   const createOrder = () => {
+    const orderId = `ORD-${Math.floor(Math.random() * 9000) + 1000}`;
     const newOrder: CafeOrder = {
-      id: `ORD-${Math.floor(Math.random() * 9000) + 1000}`,
+      id: orderId,
       clientName: selectedClient || 'عميل عابر',
       items: [...cart],
       totalPrice: total,
@@ -120,6 +124,18 @@ const CafeSystem: React.FC = () => {
       timestamp: new Date()
     };
     setOrders([newOrder, ...orders]);
+    processOrder(cart);
+    
+    if (total > 0) {
+      addTransaction({
+        type: 'INCOME',
+        category: 'CAFE_SALE',
+        amount: total,
+        description: `طلب كافيه - ${newOrder.clientName}`,
+        referenceId: orderId
+      });
+    }
+
     setCart([]);
     setSelectedClient('');
     setActiveTab('orders');
@@ -190,7 +206,7 @@ const CafeSystem: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-              {CAFE_MENU.map((item, idx) => (
+              {products.map((item, idx) => (
                 <button 
                   key={idx}
                   onClick={() => handleItemClick(item)}
@@ -202,7 +218,7 @@ const CafeSystem: React.FC = () => {
                       <Coffee size={26} strokeWidth={2.5} />
                     </div>
                     <h3 className="font-bold text-lg text-[#2C2A3A] font-serif">{item.name}</h3>
-                    <p className="text-[#D8A08A] font-black text-xl mt-2 italic">{(item.price / 10).toFixed(3)} <span className="text-[10px] uppercase not-italic">ر.ع</span></p>
+                    <p className="text-[#D8A08A] font-black text-xl mt-2 italic">{Number(item.price).toFixed(3)} <span className="text-[10px] uppercase not-italic">ر.ع</span></p>
                     <div className="mt-4 flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-[#6E6E6E] opacity-0 group-hover:opacity-100 transition-opacity">
                       <PlusCircle size={12} className="text-[#D8A08A]" /> تخصيص الطلب
                     </div>
@@ -252,7 +268,7 @@ const CafeSystem: React.FC = () => {
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <p className="text-sm font-black text-[#2C2A3A]">{item.name}</p>
-                              <p className="text-[11px] text-[#D8A08A] font-bold">{(calculateItemTotal(item) / 10).toFixed(3)} ر.ع</p>
+                              <p className="text-[11px] text-[#D8A08A] font-bold">{calculateItemTotal(item).toFixed(3)} ر.ع</p>
                             </div>
                             <div className="flex items-center gap-4 bg-[#F4E9E4]/50 p-2 rounded-xl">
                               <button onClick={() => removeFromCart(item.id)} className="text-[#6E6E6E] hover:text-rose-500 transition-colors"><Minus size={14} strokeWidth={3} /></button>
@@ -336,7 +352,7 @@ const CafeSystem: React.FC = () => {
                           <p key={ei} className="text-[9px] text-[#D8A08A] mt-0.5">• {ex.name}</p>
                         ))}
                       </div>
-                      <span className="font-bold text-[#6E6E6E]">{(calculateItemTotal(item)/10).toFixed(3)} ر.ع</span>
+                      <span className="font-bold text-[#6E6E6E]">{calculateItemTotal(item).toFixed(3)} ر.ع</span>
                     </div>
                   ))}
                 </div>
@@ -445,7 +461,7 @@ const CafeSystem: React.FC = () => {
                 </div>
                 <div className="text-left">
                   <span className="text-3xl font-serif italic font-black text-[#D8A08A] tracking-tighter">
-                    {((itemPendingExtras.price + selectedExtras.reduce((a,c) => a+c.price, 0)) / 10).toFixed(3)}
+                    {(itemPendingExtras.price + selectedExtras.reduce((a,c) => a+c.price, 0)).toFixed(3)}
                   </span>
                   <span className="text-xs font-black ml-1 text-[#2C2A3A]">ر.ع</span>
                 </div>

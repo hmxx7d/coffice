@@ -7,19 +7,12 @@ export enum RoomType {
   SINGLE_ROOM = 'غرفة فردية'
 }
 
-export enum RoomStatus {
-  AVAILABLE = 'متاحة',
-  OCCUPIED = 'محجوزة',
-  MAINTENANCE = 'تحت الصيانة'
-}
-
 export interface Room {
   id: string;
   name: string;
   type: RoomType;
   hourlyPrice: number;
   capacity: number;
-  status: RoomStatus;
 }
 
 export enum SubscriptionType {

@@ -2,8 +2,21 @@
 import React from 'react';
 import { CreditCard, AlertCircle, RefreshCw, Snowflake, Plus, Clock, CheckCircle2 } from 'lucide-react';
 import { SUBSCRIPTION_MODELS } from '../constants';
+import { useFinance } from '../context/FinanceContext';
 
 const SubscriptionManager: React.FC = () => {
+  const { addTransaction } = useFinance();
+
+  const handleSubscribe = (model: any) => {
+    addTransaction({
+      type: 'INCOME',
+      category: 'SUBSCRIPTION',
+      amount: model.price,
+      description: `اشتراك باقة - ${model.name}`,
+    });
+    alert(`تم تفعيل اشتراك ${model.name} بنجاح!`);
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <header className="flex justify-between items-center">
@@ -45,7 +58,10 @@ const SubscriptionManager: React.FC = () => {
                 </li>
               </ul>
 
-              <button className="w-full py-2.5 rounded-xl bg-gray-50 text-indigo-600 text-sm font-bold border border-indigo-50 hover:bg-indigo-600 hover:text-white transition-all">
+              <button 
+                onClick={() => handleSubscribe(model)}
+                className="w-full py-2.5 rounded-xl bg-gray-50 text-indigo-600 text-sm font-bold border border-indigo-50 hover:bg-indigo-600 hover:text-white transition-all"
+              >
                 اختر هذه الباقة
               </button>
             </div>
