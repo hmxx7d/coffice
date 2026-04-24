@@ -28,12 +28,35 @@ export interface ProductData {
   recipe?: RecipeIngredient[];
 }
 
+export interface LostMaterial {
+  id: string;
+  materialId: string;
+  quantity: number;
+  reason: string;
+  date: string;
+}
+
+export interface AddedMaterial {
+  id: string;
+  materialId: string;
+  quantity: number;
+  cost: number;
+  supplier: string;
+  date: string;
+}
+
 interface CafeInventoryContextType {
   materials: Material[];
   setMaterials: React.Dispatch<React.SetStateAction<Material[]>>;
   products: ProductData[];
   setProducts: React.Dispatch<React.SetStateAction<ProductData[]>>;
+  lostMaterials: LostMaterial[];
+  setLostMaterials: React.Dispatch<React.SetStateAction<LostMaterial[]>>;
+  addedMaterials: AddedMaterial[];
+  setAddedMaterials: React.Dispatch<React.SetStateAction<AddedMaterial[]>>;
   processOrder: (items: { id: string; name: string; quantity: number }[]) => void;
+  recordLostMaterial: (lost: Omit<LostMaterial, 'id' | 'date'>) => void;
+  recordAddedMaterial: (added: Omit<AddedMaterial, 'id' | 'date'>) => void;
 }
 
 const INITIAL_MATERIALS: Material[] = [
@@ -64,9 +87,14 @@ const INITIAL_PRODUCTS: ProductData[] = [
 
 const CafeInventoryContext = createContext<CafeInventoryContextType | undefined>(undefined);
 
+const INITIAL_LOST_MATERIALS: LostMaterial[] = [];
+const INITIAL_ADDED_MATERIALS: AddedMaterial[] = [];
+
 export const CafeInventoryProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [materials, setMaterials] = useState<Material[]>(INITIAL_MATERIALS);
   const [products, setProducts] = useState<ProductData[]>(INITIAL_PRODUCTS);
+  const [lostMaterials, setLostMaterials] = useState<LostMaterial[]>(INITIAL_LOST_MATERIALS);
+  const [addedMaterials, setAddedMaterials] = useState<AddedMaterial[]>(INITIAL_ADDED_MATERIALS);
   const { addTransaction } = useFinance();
 
   const processOrder = (items: { id: string; name: string; quantity: number }[]) => {
@@ -106,8 +134,53 @@ export const CafeInventoryProvider: React.FC<{ children: ReactNode }> = ({ child
     }
   };
 
+  const recordLostMaterial = (lost: Omit<LostMaterial, 'id' | 'date'>) => {
+    const newLostMateral: LostMaterial = {
+      ...lost,
+      id: Math.random().toString(36).substr(2, 9),
+      date: new Date().toISOString(),
+    };
+
+    setLostMaterials(prev => [newLostMateral, ...prev]);
+
+    // Update material or product stock
+    const isMaterial = materials.some(m => m.id === lost.materialId);
+    if (isMaterial) {
+      setMaterials(prev => prev.map(m => m.id === lost.materialId ? { ...m, current: Math.max(0, m.current - lost.quantity) } : m));
+    } else {
+      setProducts(prevProducts => prevProducts.map(p => p.id === lost.materialId && typeof p.stock === 'number' ? { ...p, stock: Math.max(0, p.stock - lost.quantity) } : p));
+    }
+  };
+
+  const recordAddedMaterial = (added: Omit<AddedMaterial, 'id' | 'date'>) => {
+    const newAddedMateral: AddedMaterial = {
+      ...added,
+      id: Math.random().toString(36).substr(2, 9),
+      date: new Date().toISOString(),
+    };
+
+    setAddedMaterials(prev => [newAddedMateral, ...prev]);
+
+    const isMaterial = materials.some(m => m.id === added.materialId);
+    if (isMaterial) {
+      setMaterials(prev => prev.map(m => m.id === added.materialId ? { ...m, current: m.current + added.quantity } : m));
+    } else {
+      setProducts(prevProducts => prevProducts.map(p => p.id === added.materialId && typeof p.stock === 'number' ? { ...p, stock: p.stock + added.quantity } : p));
+    }
+
+    // Add cost transaction
+    if (added.cost > 0) {
+      addTransaction({
+        type: 'EXPENSE',
+        category: 'INVENTORY_COST',
+        amount: added.cost * added.quantity,
+        description: `توريد مخزون من: ${added.supplier}`,
+      });
+    }
+  };
+
   return (
-    <CafeInventoryContext.Provider value={{ materials, setMaterials, products, setProducts, processOrder }}>
+    <CafeInventoryContext.Provider value={{ materials, setMaterials, products, setProducts, lostMaterials, setLostMaterials, addedMaterials, setAddedMaterials, processOrder, recordLostMaterial, recordAddedMaterial }}>
       {children}
     </CafeInventoryContext.Provider>
   );

@@ -5,6 +5,9 @@ import App from './App';
 import { CafeInventoryProvider } from './context/CafeInventoryContext';
 import { RoomProvider } from './context/RoomContext';
 import { FinanceProvider } from './context/FinanceContext';
+import { OrderProvider } from './context/OrderContext';
+import { CartProvider } from './context/CartContext';
+import { AuthProvider } from './context/AuthContext';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -14,12 +17,18 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <FinanceProvider>
-      <CafeInventoryProvider>
-        <RoomProvider>
-          <App />
-        </RoomProvider>
-      </CafeInventoryProvider>
-    </FinanceProvider>
+    <AuthProvider>
+      <FinanceProvider>
+        <CafeInventoryProvider>
+          <RoomProvider>
+            <OrderProvider>
+              <CartProvider>
+                <App />
+              </CartProvider>
+            </OrderProvider>
+          </RoomProvider>
+        </CafeInventoryProvider>
+      </FinanceProvider>
+    </AuthProvider>
   </React.StrictMode>
 );

@@ -1,10 +1,10 @@
 
 export enum RoomType {
-  SINGLE_CLOSED = 'غرفة فردية مغلقة',
-  SEMI_CLOSED = 'مكتب شبه مغلق',
-  CLASSROOM = 'قاعة دروس خصوصية',
-  MEETING_ROOM_QUAD = 'غرفة اجتماعات رباعية',
-  SINGLE_ROOM = 'غرفة فردية'
+  STUDIO = 'استوديو',
+  WORKSHOP = 'ورش عمل',
+  MEETING_ROOM = 'غرف اجتماعات',
+  WORKSPACE = 'مساحات عمل',
+  PODCAST = 'بودكاست'
 }
 
 export interface Room {
@@ -29,6 +29,7 @@ export interface Client {
   balance: number;
   totalUsageHours: number;
   subscriptionId?: string;
+  createdAt?: any;
 }
 
 export interface Subscription {

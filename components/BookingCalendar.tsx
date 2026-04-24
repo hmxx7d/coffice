@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { 
   ChevronRight, 
   ChevronLeft, 
@@ -20,11 +21,21 @@ import {
   Wifi,
   FileText,
   BadgePercent,
-  CreditCard
+  CreditCard,
+  Mic, Camera, Users, Monitor, Briefcase
 } from 'lucide-react';
 
 import { useRooms } from '../context/RoomContext';
 import { useFinance } from '../context/FinanceContext';
+import { RoomType } from '../types';
+
+const CATEGORIES = [
+  { id: 'workspace', name: RoomType.WORKSPACE, icon: Monitor, label: 'مساحات عمل' },
+  { id: 'meeting', name: RoomType.MEETING_ROOM, icon: Users, label: 'غرف اجتماعات' },
+  { id: 'workshop', name: RoomType.WORKSHOP, icon: Briefcase, label: 'ورش عمل' },
+  { id: 'studio', name: RoomType.STUDIO, icon: Camera, label: 'استوديو' },
+  { id: 'podcast', name: RoomType.PODCAST, icon: Mic, label: 'بودكاست' },
+];
 
 const MOCK_CLIENTS = [
   { id: '1', name: 'سارة خالد', phone: '96891234567', subscription: { name: 'باقة 50 ساعة', remainingHours: 12 } },
@@ -49,8 +60,19 @@ const BookingCalendar: React.FC = () => {
   const [isRegisteringNew, setIsRegisteringNew] = useState(false);
   const [phoneSearch, setPhoneSearch] = useState('');
   const [bookings, setBookings] = useState(INITIAL_BOOKINGS);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  
   const { rooms } = useRooms();
   const { addTransaction } = useFinance();
+  const [searchParams, setSearchParams] = useSearchParams();
+  
+  const currentCategoryParam = searchParams.get('category') || 'workspace';
+  const activeCategory = CATEGORIES.find(c => c.id === currentCategoryParam) || CATEGORIES[0];
+
+  const handleTabChange = (categoryId: string) => {
+    setSearchParams({ category: categoryId });
+  };
+
   
   const [bookingData, setBookingData] = useState({
     clientId: '',
@@ -123,6 +145,27 @@ const BookingCalendar: React.FC = () => {
     }));
   };
 
+  const handlePrevDay = () => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() - 1);
+    setSelectedDate(d.toISOString().split('T')[0]);
+  };
+
+  const handleNextDay = () => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + 1);
+    setSelectedDate(d.toISOString().split('T')[0]);
+  };
+
+  const formatDateLabel = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('ar-OM', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -130,17 +173,27 @@ const BookingCalendar: React.FC = () => {
           <h2 className="text-3xl font-black text-[#2C2A3A] font-serif">إدارة الحجوزات</h2>
           <p className="text-[#6E6E6E] text-sm mt-1">نظام كوفيكس المتكامل لإدارة تجربة الضيف</p>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center bg-white border border-[#E8E2DE] rounded-2xl px-3 py-1 shadow-sm">
-            <button className="p-2 text-[#D8A08A] hover:bg-[#F4E9E4] rounded-xl"><ChevronRight size={20} /></button>
-            <span className="px-6 py-2 font-black text-xs uppercase tracking-widest text-[#2C2A3A] min-w-[160px] text-center">يونيو 2024</span>
-            <button className="p-2 text-[#D8A08A] hover:bg-[#F4E9E4] rounded-xl"><ChevronLeft size={20} /></button>
+        <div className="flex flex-col sm:flex-row items-center gap-4">
+          <div className="flex items-center bg-white border border-[#E8E2DE] rounded-2xl px-2 py-1 shadow-sm">
+            <button onClick={handleNextDay} className="p-2 text-[#D8A08A] hover:bg-[#F4E9E4] rounded-xl"><ChevronRight size={20} /></button>
+            <div className="relative flex items-center justify-center">
+              <input 
+                 type="date"
+                 value={selectedDate}
+                 onChange={(e) => setSelectedDate(e.target.value)}
+                 className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              />
+              <span className="px-4 py-2 font-black text-xs uppercase tracking-widest text-[#2C2A3A] min-w-[200px] text-center pointer-events-none">
+                {formatDateLabel(selectedDate)}
+              </span>
+            </div>
+            <button onClick={handlePrevDay} className="p-2 text-[#D8A08A] hover:bg-[#F4E9E4] rounded-xl"><ChevronLeft size={20} /></button>
           </div>
           <button 
             onClick={() => { 
               setPhoneSearch(''); 
               setIsRegisteringNew(false); 
-              setBookingData(prev => ({ ...prev, invoiceId: `INV-${Math.floor(Math.random() * 10000).toString().padStart(5, '0')}`, additionalServices: [] }));
+              setBookingData(prev => ({ ...prev, date: selectedDate, invoiceId: `INV-${Math.floor(Math.random() * 10000).toString().padStart(5, '0')}`, additionalServices: [] }));
               setIsModalOpen(true); 
             }}
             className="flex items-center gap-3 bg-[#2C2A3A] text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-black/10 hover:bg-[#D8A08A] transition-all"
@@ -151,50 +204,78 @@ const BookingCalendar: React.FC = () => {
         </div>
       </header>
 
+      {/* Tabs */}
+      <div className="flex overflow-x-auto hide-scrollbar gap-2 pb-2">
+        {CATEGORIES.map((cat) => {
+          const Icon = cat.icon;
+          const isActive = activeCategory.id === cat.id;
+          return (
+            <button
+              key={cat.id}
+              onClick={() => handleTabChange(cat.id)}
+              className={`flex flex-col items-center gap-2 min-w-[120px] p-4 rounded-2xl border transition-all ${
+                isActive 
+                  ? 'bg-[#2C2A3A] text-[#D8A08A] border-[#2C2A3A] shadow-md' 
+                  : 'bg-white text-[#6E6E6E] border-[#E8E2DE] hover:bg-[#F4E9E4]/50'
+              }`}
+            >
+              <Icon size={24} />
+              <span className="font-bold text-sm whitespace-nowrap">{cat.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Room Timelines */}
       <div className="bg-white rounded-[40px] border border-[#E8E2DE] shadow-xl p-8 mb-8">
-        <h3 className="font-serif italic font-black text-xl text-[#2C2A3A] mb-6">حالة القاعات اليوم</h3>
+        <h3 className="font-serif italic font-black text-xl text-[#2C2A3A] mb-6">حالة {activeCategory.label} اليوم</h3>
         <div className="space-y-6">
-          {rooms.map(room => {
-            return (
-              <div key={room.id} className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-[#2C2A3A]">{room.name}</span>
-                  <span className="text-[10px] font-black text-[#D8A08A] bg-[#F4E9E4] px-3 py-1 rounded-full">{room.hourlyPrice.toFixed(3)} ر.ع/س</span>
-                </div>
-                <div className="h-10 bg-[#F4E9E4]/50 rounded-xl flex overflow-hidden relative border border-[#E8E2DE]">
-                  {hours.map(hour => {
-                    const booking = bookings.find(b => b.roomId === room.id && parseInt(b.startTime.split(':')[0]) <= hour && parseInt(b.endTime.split(':')[0]) > hour);
-                    const isBooked = !!booking;
-                    return (
-                      <div 
-                        key={hour} 
-                        className={`flex-1 border-r border-white/50 last:border-0 relative group transition-all duration-300 ${isBooked ? (booking.status === 'مؤكد' ? 'bg-[#2C2A3A]' : 'bg-[#D8A08A]') : 'hover:bg-[#E8E2DE] cursor-pointer'}`}
-                        onClick={() => {
-                          if (!isBooked) {
-                            setBookingData(prev => ({ ...prev, room: room.id, startTime: `${hour.toString().padStart(2, '0')}:00`, endTime: `${(hour+1).toString().padStart(2, '0')}:00` }));
-                            setIsModalOpen(true);
-                          }
-                        }}
-                      >
-                        {/* Tooltip */}
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block bg-[#2C2A3A] text-white text-[10px] py-1.5 px-3 rounded-lg whitespace-nowrap z-10 shadow-xl font-bold">
-                          {hour.toString().padStart(2, '0')}:00 - {(hour+1).toString().padStart(2, '0')}:00
-                          <br/>
-                          {isBooked ? <span className="text-[#D8A08A]">{booking.clientName} ({booking.status})</span> : <span className="text-emerald-400">متاح للحجز</span>}
+          {rooms.filter(r => r.type === activeCategory.name).length === 0 ? (
+            <div className="text-center py-12 bg-white rounded-[32px] border border-[#E8E2DE] border-dashed">
+              <p className="text-[#6E6E6E] font-bold text-lg">لا توجد مساحات في هذه الفئة حالياً.</p>
+            </div>
+          ) : (
+            rooms.filter(r => r.type === activeCategory.name).map(room => {
+              return (
+                <div key={room.id} className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-[#2C2A3A]">{room.name}</span>
+                    <span className="text-[10px] font-black text-[#D8A08A] bg-[#F4E9E4] px-3 py-1 rounded-full">{room.hourlyPrice.toFixed(3)} ر.ع/س</span>
+                  </div>
+                  <div className="h-10 bg-[#F4E9E4]/50 rounded-xl flex overflow-hidden relative border border-[#E8E2DE]">
+                    {hours.map(hour => {
+                      const booking = bookings.find(b => b.date === selectedDate && b.roomId === room.id && parseInt(b.startTime.split(':')[0]) <= hour && parseInt(b.endTime.split(':')[0]) > hour);
+                      const isBooked = !!booking;
+                      return (
+                        <div 
+                          key={hour} 
+                          className={`flex-1 border-r border-white/50 last:border-0 relative group transition-all duration-300 ${isBooked ? (booking.status === 'مؤكد' ? 'bg-[#2C2A3A]' : 'bg-[#D8A08A]') : 'hover:bg-[#E8E2DE] cursor-pointer'}`}
+                          onClick={() => {
+                            if (!isBooked) {
+                              setBookingData(prev => ({ ...prev, room: room.id, date: selectedDate, startTime: `${hour.toString().padStart(2, '0')}:00`, endTime: `${(hour+1).toString().padStart(2, '0')}:00` }));
+                              setIsModalOpen(true);
+                            }
+                          }}
+                        >
+                          {/* Tooltip */}
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block bg-[#2C2A3A] text-white text-[10px] py-1.5 px-3 rounded-lg whitespace-nowrap z-10 shadow-xl font-bold">
+                            {hour.toString().padStart(2, '0')}:00 - {(hour+1).toString().padStart(2, '0')}:00
+                            <br/>
+                            {isBooked ? <span className="text-[#D8A08A]">{booking.clientName} ({booking.status})</span> : <span className="text-emerald-400">متاح للحجز</span>}
+                          </div>
                         </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
+                  </div>
+                  <div className="flex justify-between px-2">
+                    <span className="text-[9px] font-bold text-[#6E6E6E]">08:00</span>
+                    <span className="text-[9px] font-bold text-[#6E6E6E]">15:00</span>
+                    <span className="text-[9px] font-bold text-[#6E6E6E]">22:00</span>
+                  </div>
                 </div>
-                <div className="flex justify-between px-2">
-                  <span className="text-[9px] font-bold text-[#6E6E6E]">08:00</span>
-                  <span className="text-[9px] font-bold text-[#6E6E6E]">15:00</span>
-                  <span className="text-[9px] font-bold text-[#6E6E6E]">22:00</span>
-                </div>
-              </div>
-            )
-          })}
+              )
+            })
+          )}
         </div>
       </div>
 
@@ -224,12 +305,17 @@ const BookingCalendar: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#F4E9E4]">
-              {bookings.map((b) => {
-                const roomName = rooms.find(r => r.id === b.roomId)?.name || 'غير معروف';
-                const serviceNames = b.services.map(sId => ADDITIONAL_SERVICES.find(s => s.id === sId)?.name || sId);
-                return (
-                <tr key={b.id} className="group hover:bg-[#F4E9E4]/30 transition-colors">
-                  <td className="px-8 py-6">
+              {bookings.filter(b => b.date === selectedDate).length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-8 py-12 text-center text-[#6E6E6E] font-bold">لا توجد حجوزات في هذا التاريخ</td>
+                </tr>
+              ) : (
+                bookings.filter(b => b.date === selectedDate).map((b) => {
+                  const roomName = rooms.find(r => r.id === b.roomId)?.name || 'غير معروف';
+                  const serviceNames = b.services.map(sId => ADDITIONAL_SERVICES.find(s => s.id === sId)?.name || sId);
+                  return (
+                  <tr key={b.id} className="group hover:bg-[#F4E9E4]/30 transition-colors">
+                    <td className="px-8 py-6">
                     <div className="flex flex-col">
                       <span className="font-bold text-[#2C2A3A]">{b.clientName}</span>
                       <span className="text-[10px] text-[#D8A08A] font-mono tracking-tighter">{b.phone}</span>
@@ -263,7 +349,7 @@ const BookingCalendar: React.FC = () => {
                     <span className="text-lg font-serif italic font-black text-[#2C2A3A] tracking-tighter">{b.totalPrice} <span className="text-[9px] not-italic opacity-50">ر.ع</span></span>
                   </td>
                 </tr>
-              )})}
+              )}))}
             </tbody>
           </table>
         </div>

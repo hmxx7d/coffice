@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Package, 
   Droplets, 
@@ -22,20 +22,27 @@ import {
   Scale,
   Beaker,
   Zap,
-  Layout
+  Layout,
+  Calendar,
+  ChevronDown
 } from 'lucide-react';
 import { useCafeInventory, Material, ProductData, RecipeIngredient } from '../context/CafeInventoryContext';
+import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
+import { db } from '../firebase';
+import { FirestoreOrder } from '../hooks/useOrdersFirestore';
 
-type InventoryTab = 'products' | 'materials' | 'recipes' | 'reports';
+type InventoryTab = 'products' | 'materials' | 'lost_materials' | 'reports';
 
 const InventoryManager: React.FC = () => {
   const [activeTab, setActiveTab] = useState<InventoryTab>('products');
-  const { products, setProducts, materials, setMaterials } = useCafeInventory();
+  const { products, setProducts, materials, setMaterials, lostMaterials, addedMaterials, recordLostMaterial, recordAddedMaterial } = useCafeInventory();
   
   // Modal States
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false);
   const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
+  const [isLostMaterialModalOpen, setIsLostMaterialModalOpen] = useState(false);
+  const [isAddStockModalOpen, setIsAddStockModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductData | null>(null);
   const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
 
@@ -59,6 +66,108 @@ const InventoryManager: React.FC = () => {
     cost: 0,
     supplier: ''
   });
+
+  const [lostMaterialFormData, setLostMaterialFormData] = useState({
+    materialId: '',
+    quantity: 0,
+    reason: ''
+  });
+
+  const [addStockFormData, setAddStockFormData] = useState({
+    materialId: '',
+    quantity: 0,
+    cost: 0,
+    supplier: ''
+  });
+
+  const [reportRange, setReportRange] = useState<'day' | 'week' | 'month'>('day');
+  const [reportOrders, setReportOrders] = useState<FirestoreOrder[]>([]);
+  const [isReportLoading, setIsReportLoading] = useState(false);
+
+  useEffect(() => {
+    if (activeTab === 'reports') {
+      const fetchReportData = async () => {
+        setIsReportLoading(true);
+        try {
+          const now = new Date();
+          let startDate = new Date();
+          if (reportRange === 'day') {
+            startDate.setHours(0, 0, 0, 0);
+          } else if (reportRange === 'week') {
+            startDate.setDate(now.getDate() - 7);
+          } else if (reportRange === 'month') {
+            startDate.setMonth(now.getMonth() - 1);
+          }
+
+          const q = query(
+            collection(db, 'orders'),
+            where('createdAt', '>=', Timestamp.fromDate(startDate))
+          );
+          const snap = await getDocs(q);
+          const orders = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as FirestoreOrder));
+          setReportOrders(orders);
+        } catch (error) {
+          console.error("Error fetching report orders:", error);
+        } finally {
+          setIsReportLoading(false);
+        }
+      };
+      
+      fetchReportData();
+    }
+  }, [activeTab, reportRange]);
+
+  // Calculations for Reports
+  const filteredAddedMaterials = (addedMaterials || []).filter(am => {
+    const d = new Date(am.date);
+    const now = new Date();
+    if (reportRange === 'day') return d.toDateString() === now.toDateString();
+    if (reportRange === 'week') return (now.getTime() - d.getTime()) <= 7 * 86400000;
+    if (reportRange === 'month') return (now.getTime() - d.getTime()) <= 30 * 86400000;
+    return true;
+  });
+
+  const filteredLostMaterials = (lostMaterials || []).filter(lm => {
+    const d = new Date(lm.date);
+    const now = new Date();
+    if (reportRange === 'day') return d.toDateString() === now.toDateString();
+    if (reportRange === 'week') return (now.getTime() - d.getTime()) <= 7 * 86400000;
+    if (reportRange === 'month') return (now.getTime() - d.getTime()) <= 30 * 86400000;
+    return true;
+  });
+
+  const reportStats = useMemo(() => {
+    const totalOrders = reportOrders.length;
+    const totalIncome = reportOrders.reduce((sum, o) => sum + o.totalPrice, 0);
+    
+    // Most popular drinks
+    const itemCounts: Record<string, number> = {};
+    reportOrders.forEach(o => {
+      o.items.forEach(i => {
+        itemCounts[i.name] = (itemCounts[i.name] || 0) + i.quantity;
+      });
+    });
+    
+    const sortedItems = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]);
+    const topItems = sortedItems.slice(0, 3).map(arr => arr[0]).join('، ') || 'لا يوجد';
+
+    const totalLostValue = filteredLostMaterials.reduce((sum, lm) => {
+      const p = products.find(prod => prod.id === lm.materialId);
+      const m = materials.find(mat => mat.id === lm.materialId);
+      const cost = (p?.cost || m?.cost || 0);
+      return sum + (cost * lm.quantity);
+    }, 0);
+
+    const totalAddedCost = filteredAddedMaterials.reduce((sum, am) => sum + (am.cost * am.quantity), 0);
+
+    return {
+      totalOrders,
+      totalIncome,
+      topItems,
+      totalLostValue,
+      totalAddedCost
+    };
+  }, [reportOrders, filteredLostMaterials, filteredAddedMaterials, products, materials]);
 
   const calculateProductCostFromRecipe = (recipe: RecipeIngredient[]) => {
     return recipe.reduce((total, ing) => {
@@ -198,6 +307,31 @@ const InventoryManager: React.FC = () => {
     setIsMaterialModalOpen(false);
   };
 
+  const handleLostMaterialSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!lostMaterialFormData.materialId || lostMaterialFormData.quantity <= 0) return;
+    recordLostMaterial({
+      materialId: lostMaterialFormData.materialId,
+      quantity: lostMaterialFormData.quantity,
+      reason: lostMaterialFormData.reason,
+    });
+    setIsLostMaterialModalOpen(false);
+    setLostMaterialFormData({ materialId: '', quantity: 0, reason: '' });
+  };
+
+  const handleAddStockSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addStockFormData.materialId || addStockFormData.quantity <= 0) return;
+    recordAddedMaterial({
+      materialId: addStockFormData.materialId,
+      quantity: addStockFormData.quantity,
+      cost: addStockFormData.cost,
+      supplier: addStockFormData.supplier || 'غير محدد'
+    });
+    setIsAddStockModalOpen(false);
+    setAddStockFormData({ materialId: '', quantity: 0, cost: 0, supplier: '' });
+  };
+
   const deleteMaterial = (id: string) => {
     if (window.confirm('هل أنت متأكد من حذف هذه المادة؟')) {
       setMaterials(materials.filter(m => m.id !== id));
@@ -213,13 +347,13 @@ const InventoryManager: React.FC = () => {
           <p className="text-[#6E6E6E] text-sm mt-1">تتبع الموارد والوصفات وحساب التكاليف بدقة</p>
         </div>
         <div className="flex bg-white p-1.5 rounded-[22px] border border-[#E8E2DE] shadow-sm overflow-x-auto">
-          {['products', 'materials', 'recipes', 'reports'].map((tab) => (
+          {['products', 'materials', 'lost_materials', 'reports'].map((tab) => (
             <button 
               key={tab}
               onClick={() => setActiveTab(tab as InventoryTab)}
               className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === tab ? 'bg-[#2C2A3A] text-white shadow-lg' : 'text-[#6E6E6E] hover:text-[#2C2A3A]'}`}
             >
-              {tab === 'products' ? 'المنتجات' : tab === 'materials' ? 'المواد الخام' : tab === 'recipes' ? 'الوصفات' : 'التقارير'}
+              {tab === 'products' ? 'المنتجات' : tab === 'materials' ? 'المواد الخام' : tab === 'lost_materials' ? 'الضائع' : 'التقارير'}
             </button>
           ))}
         </div>
@@ -542,43 +676,25 @@ const InventoryManager: React.FC = () => {
         </div>
       )}
 
-      {/* Recipes Summary View */}
-      {activeTab === 'recipes' && (
-        <div className="bg-white p-10 rounded-[40px] border border-[#E8E2DE] shadow-sm">
-          <h3 className="font-serif italic font-black text-2xl mb-8 text-[#2C2A3A]">إدارة تكاليف المشروبات (وصفات كوفيكس)</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {products.filter(p => p.category.includes('قهوة')).map(p => (
-              <div key={p.id} className="p-6 bg-[#F4E9E4]/20 border border-[#E8E2DE] rounded-[30px] flex items-center justify-between group hover:border-[#D8A08A] transition-all">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-[#2C2A3A] rounded-xl flex items-center justify-center text-[#D8A08A] shadow-lg"><Zap size={22} /></div>
-                  <div>
-                    <p className="text-sm font-black text-[#2C2A3A]">{p.name}</p>
-                    <p className="text-[10px] text-[#6E6E6E] font-bold">التكلفة الحالية: {p.cost.toFixed(3)} ر.ع</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => openEditRecipe(p)}
-                  className="px-6 py-2.5 bg-white border border-[#E8E2DE] rounded-xl text-[10px] font-black uppercase tracking-widest text-[#2C2A3A] hover:bg-[#2C2A3A] hover:text-white transition-all shadow-sm"
-                >
-                  تعديل المكونات
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Materials View */}
       {activeTab === 'materials' && (
         <div className="bg-white rounded-[40px] border border-[#E8E2DE] shadow-xl overflow-hidden">
           <div className="p-8 border-b border-[#F4E9E4] bg-[#F4E9E4]/10 flex items-center justify-between">
             <h3 className="font-serif italic font-black text-xl text-[#2C2A3A]">قائمة المواد الخام</h3>
-            <button 
-              onClick={openAddMaterialModal}
-              className="flex items-center gap-3 bg-[#D8A08A] text-white px-6 py-2.5 rounded-2xl hover:bg-[#C08A75] transition-all shadow-xl shadow-[#D8A08A]/20 font-black text-[11px] uppercase tracking-widest"
-            >
-              <Plus size={16} /> إضافة مادة خام
-            </button>
+            <div className="flex gap-4">
+              <button 
+                onClick={() => setIsAddStockModalOpen(true)}
+                className="flex items-center gap-3 bg-emerald-600 text-white px-6 py-2.5 rounded-2xl hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-600/20 font-black text-[11px] uppercase tracking-widest"
+              >
+                <Truck size={16} /> تسجيل توريد
+              </button>
+              <button 
+                onClick={openAddMaterialModal}
+                className="flex items-center gap-3 bg-[#D8A08A] text-white px-6 py-2.5 rounded-2xl hover:bg-[#C08A75] transition-all shadow-xl shadow-[#D8A08A]/20 font-black text-[11px] uppercase tracking-widest"
+              >
+                <Plus size={16} /> تعريف مادة خام
+              </button>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-right">
@@ -654,7 +770,7 @@ const InventoryManager: React.FC = () => {
                   <input 
                     required
                     type="text" 
-                    placeholder="مثال: جرام، ملل، قطعة"
+                    placeholder="مثال: جرام، ملل، حبة"
                     className="w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold"
                     value={materialFormData.unit}
                     onChange={e => setMaterialFormData({...materialFormData, unit: e.target.value})}
@@ -719,6 +835,366 @@ const InventoryManager: React.FC = () => {
                   className="flex-1 py-4 bg-[#D8A08A] text-white rounded-2xl font-black uppercase tracking-widest text-[11px] hover:bg-[#2C2A3A] transition-all shadow-xl"
                 >
                   {editingMaterial ? 'حفظ التغييرات' : 'إضافة المادة'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Lost Materials View */}
+      {activeTab === 'lost_materials' && (
+        <div className="bg-white rounded-[40px] border border-[#E8E2DE] shadow-xl overflow-hidden">
+          <div className="p-8 border-b border-[#F4E9E4] bg-[#F4E9E4]/10 flex items-center justify-between">
+            <h3 className="font-serif italic font-black text-xl text-[#2C2A3A]">سجل المواد الضائعة أو التالفة</h3>
+            <button 
+              onClick={() => setIsLostMaterialModalOpen(true)}
+              className="flex items-center gap-3 bg-[#D8A08A] text-white px-6 py-2.5 rounded-2xl hover:bg-[#C08A75] transition-all shadow-xl shadow-[#D8A08A]/20 font-black text-[11px] uppercase tracking-widest"
+            >
+              <Plus size={16} /> تسجيل مادة ضائعة
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-right">
+              <thead>
+                <tr className="bg-[#2C2A3A] text-white/50 text-[10px] font-black uppercase tracking-widest">
+                  <th className="px-8 py-5">المادة/المنتج</th>
+                  <th className="px-6 py-5">الكمية الضائعة</th>
+                  <th className="px-6 py-5">السبب</th>
+                  <th className="px-6 py-5">التاريخ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#F4E9E4]">
+                {lostMaterials.map(m => {
+                  const mInfo = materials.find(x => x.id === m.materialId) || products.find(x => x.id === m.materialId);
+                  return (
+                    <tr key={m.id} className="hover:bg-[#F4E9E4]/30 transition-colors">
+                      <td className="px-8 py-6 font-bold text-[#2C2A3A]">{mInfo?.name || m.materialId}</td>
+                      <td className="px-6 py-6 text-xs text-[#6E6E6E] font-bold">{m.quantity} {'unit' in (mInfo || {}) ? (mInfo as Material).unit : 'حبة'}</td>
+                      <td className="px-6 py-6 text-xs text-rose-500 font-bold">{m.reason}</td>
+                      <td className="px-6 py-6 font-serif text-[#6E6E6E] text-xs">{new Date(m.date).toLocaleString('ar-OM')}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Reports View */}
+      {activeTab === 'reports' && (
+        <div className="space-y-6 animate-in fade-in duration-500">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="font-serif italic font-black text-2xl text-[#2C2A3A]">تقارير المخزون والأداء</h3>
+            
+            <div className="relative">
+              <select 
+                value={reportRange}
+                onChange={(e) => setReportRange(e.target.value as 'day' | 'week' | 'month')}
+                className="appearance-none bg-white border border-[#E8E2DE] text-[#2C2A3A] px-6 py-3 pr-12 rounded-2xl shadow-sm outline-none font-bold focus:ring-2 focus:ring-[#D8A08A] transition-all"
+              >
+                <option value="day">اليوم</option>
+                <option value="week">هذا الأسبوع</option>
+                <option value="month">هذا الشهر</option>
+              </select>
+              <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 text-[#D8A08A]" size={18} />
+              <ChevronDown className="absolute left-4 top-1/2 -translate-y-1/2 text-[#6E6E6E] pointer-events-none" size={16} />
+            </div>
+          </div>
+
+          {isReportLoading ? (
+            <div className="h-64 flex items-center justify-center text-[#D8A08A]">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#D8A08A]"></div>
+            </div>
+          ) : (
+            <>
+              {/* Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-[#E8E2DE] relative overflow-hidden group">
+                  <div className="absolute -right-6 -top-6 w-24 h-24 bg-amber-50 rounded-full group-hover:scale-150 transition-transform duration-500" />
+                  <div className="relative">
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="p-3 bg-amber-100 text-amber-600 rounded-2xl"><ClipboardList size={22} /></div>
+                    </div>
+                    <h3 className="text-3xl font-black text-[#2C2A3A] font-serif">{reportStats.totalOrders}</h3>
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-[#6E6E6E] mt-1">عدد الطلبات المكتملة</p>
+                  </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-[#E8E2DE] relative overflow-hidden group">
+                  <div className="absolute -right-6 -top-6 w-24 h-24 bg-emerald-50 rounded-full group-hover:scale-150 transition-transform duration-500" />
+                  <div className="relative">
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="p-3 bg-emerald-100 text-emerald-600 rounded-2xl"><DollarSign size={22} /></div>
+                    </div>
+                    <h3 className="text-3xl font-black text-[#2C2A3A] font-serif">{reportStats.totalIncome.toFixed(2)}<span className="text-sm"> ر.ع</span></h3>
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-[#6E6E6E] mt-1">إجمالي الدخل</p>
+                  </div>
+                </div>
+
+                <div className="bg-[#2C2A3A] text-white p-6 rounded-3xl shadow-xl relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-[#D8A08A] rounded-full blur-[60px] opacity-20" />
+                  <div className="relative">
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="p-3 bg-white/10 text-[#D8A08A] rounded-2xl"><Zap size={22} /></div>
+                    </div>
+                    <h3 className="text-xl font-black text-[#D8A08A] leading-tight truncate">{reportStats.topItems}</h3>
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-white/50 mt-2">الأصناف الأكثر طلباً</p>
+                  </div>
+                </div>
+
+                <div className="bg-rose-50 p-6 rounded-3xl shadow-sm border border-rose-100 relative overflow-hidden group">
+                  <div className="absolute -right-6 -top-6 w-24 h-24 bg-rose-100 rounded-full group-hover:scale-150 transition-transform duration-500" />
+                  <div className="relative">
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="p-3 bg-rose-200 text-rose-700 rounded-2xl"><AlertTriangle size={22} /></div>
+                    </div>
+                    <h3 className="text-3xl font-black text-rose-700 font-serif">{reportStats.totalLostValue.toFixed(3)}<span className="text-sm"> ر.ع</span></h3>
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-rose-600/70 mt-1">تكلفة الفاقد/التالف</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Detailed Lists */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
+                {/* Added Materials List */}
+                <div className="bg-white rounded-[40px] border border-[#E8E2DE] shadow-xl overflow-hidden">
+                  <div className="p-6 border-b border-[#F4E9E4] bg-[#F4E9E4]/10 flex items-center justify-between">
+                    <h3 className="font-serif italic font-black text-lg text-[#2C2A3A]">احتساب الإمدادات (الوارد)</h3>
+                    <span className="bg-[#D8A08A]/10 text-[#D8A08A] px-4 py-1.5 rounded-full font-bold text-xs">{filteredAddedMaterials.length} عمليات</span>
+                  </div>
+                  <div className="p-6">
+                    {filteredAddedMaterials.length === 0 ? (
+                      <p className="text-center text-[#6E6E6E] py-8 text-sm">لا توجد إمدادات خلال هذه الفترة</p>
+                    ) : (
+                      <ul className="space-y-4">
+                        {filteredAddedMaterials.map(m => {
+                          const mInfo = materials.find(x => x.id === m.materialId) || products.find(x => x.id === m.materialId);
+                          return (
+                            <li key={m.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl">
+                              <div className="flex items-center gap-4">
+                                <div className="p-3 bg-emerald-100 text-emerald-600 rounded-full"><Plus size={16} /></div>
+                                <div>
+                                  <p className="font-bold text-[#2C2A3A]">{mInfo?.name || m.materialId}</p>
+                                  <p className="text-xs text-[#6E6E6E] mt-1">{m.supplier}</p>
+                                </div>
+                              </div>
+                              <div className="text-left">
+                                <p className="font-bold text-emerald-600">+{m.quantity} {'unit' in (mInfo || {}) ? (mInfo as Material).unit : 'حبة'}</p>
+                                <p className="text-xs text-[#6E6E6E] font-serif italic mt-1">{(m.cost * m.quantity).toFixed(3)} ر.ع</p>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+
+                {/* Lost Materials List */}
+                <div className="bg-white rounded-[40px] border border-[#E8E2DE] shadow-xl overflow-hidden">
+                  <div className="p-6 border-b border-[#F4E9E4] bg-[#F4E9E4]/10 flex items-center justify-between">
+                    <h3 className="font-serif italic font-black text-lg text-[#2C2A3A]">المواد التالفة والضائعة</h3>
+                    <span className="bg-rose-100 text-rose-600 px-4 py-1.5 rounded-full font-bold text-xs">{filteredLostMaterials.length} تبليغات</span>
+                  </div>
+                  <div className="p-6">
+                    {filteredLostMaterials.length === 0 ? (
+                      <p className="text-center text-[#6E6E6E] py-8 text-sm">لا يوجد مواد تالفة خلال هذه الفترة</p>
+                    ) : (
+                      <ul className="space-y-4">
+                        {filteredLostMaterials.map(m => {
+                          const mInfo = materials.find(x => x.id === m.materialId) || products.find(x => x.id === m.materialId);
+                          return (
+                            <li key={m.id} className="flex justify-between items-center p-4 bg-rose-50 rounded-2xl">
+                              <div className="flex items-center gap-4">
+                                <div className="p-3 bg-rose-200 text-rose-700 rounded-full"><AlertTriangle size={16} /></div>
+                                <div>
+                                  <p className="font-bold text-[#2C2A3A]">{mInfo?.name || m.materialId}</p>
+                                  <p className="text-xs text-rose-500 mt-1">{m.reason}</p>
+                                </div>
+                              </div>
+                              <div className="text-left">
+                                <p className="font-bold text-rose-600">-{m.quantity} {'unit' in (mInfo || {}) ? (mInfo as Material).unit : 'حبة'}</p>
+                                <p className="text-xs text-[#6E6E6E] font-serif italic mt-1">{new Date(m.date).toLocaleString('ar-OM')}</p>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Lost Material Modal */}
+      {isLostMaterialModalOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-[#2C2A3A]/90 backdrop-blur-md animate-in fade-in duration-500" onClick={() => setIsLostMaterialModalOpen(false)} />
+          <div className="relative bg-white w-full max-w-2xl rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-500 border border-[#E8E2DE]">
+            <div className="p-8 bg-[#2C2A3A] text-white flex justify-between items-center">
+               <div className="flex items-center gap-4">
+                 <div className="w-14 h-14 bg-[#D8A08A] rounded-2xl flex items-center justify-center text-white"><AlertTriangle size={28} /></div>
+                 <div>
+                   <h3 className="text-2xl font-black font-serif italic">تسجيل مادة ضائعة/تالفة</h3>
+                   <p className="text-white/40 text-[10px] font-bold uppercase tracking-widest mt-1">يُخصم المفقود من المخزن الرئيسي</p>
+                 </div>
+               </div>
+               <button onClick={() => setIsLostMaterialModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full"><X size={24} /></button>
+            </div>
+
+            <form onSubmit={handleLostMaterialSubmit} className="p-8 space-y-6 max-h-[80vh] overflow-y-auto">
+              <div className="grid grid-cols-1 gap-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">المادة / المنتج</label>
+                  <select
+                    required
+                    className="w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold"
+                    value={lostMaterialFormData.materialId}
+                    onChange={e => setLostMaterialFormData({...lostMaterialFormData, materialId: e.target.value})}
+                  >
+                    <option value="">-- اختر --</option>
+                    <optgroup label="المواد الخام">
+                      {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
+                    </optgroup>
+                    <optgroup label="المنتجات">
+                      {products.filter(p => !p.recipe).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </optgroup>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">الكمية</label>
+                  <input 
+                    required
+                    type="number" 
+                    step="0.001"
+                    className="w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold"
+                    value={lostMaterialFormData.quantity}
+                    onChange={e => setLostMaterialFormData({...lostMaterialFormData, quantity: Number(e.target.value)})}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">سبب الهدر أو التلف</label>
+                  <input 
+                    required
+                    type="text" 
+                    className="w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold"
+                    value={lostMaterialFormData.reason}
+                    onChange={e => setLostMaterialFormData({...lostMaterialFormData, reason: e.target.value})}
+                    placeholder="مثال: منتهي الصلاحية، انسكاب بالخطأ..."
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <button 
+                  type="button"
+                  onClick={() => setIsLostMaterialModalOpen(false)}
+                  className="flex-1 py-4 border border-[#E8E2DE] rounded-2xl font-black uppercase tracking-widest text-[11px] text-[#6E6E6E] hover:bg-[#F4E9E4]"
+                >
+                  إلغاء
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-4 bg-rose-600 text-white rounded-2xl font-black uppercase tracking-widest text-[11px] hover:bg-rose-700 transition-all shadow-xl shadow-rose-600/20"
+                >
+                  تسجيل وخصم الكمية
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Stock Modal */}
+      {isAddStockModalOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-[#2C2A3A]/90 backdrop-blur-md animate-in fade-in duration-500" onClick={() => setIsAddStockModalOpen(false)} />
+          <div className="relative bg-white w-full max-w-2xl rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-500 border border-[#E8E2DE]">
+            <div className="p-8 bg-[#2C2A3A] text-white flex justify-between items-center">
+               <div className="flex items-center gap-4">
+                 <div className="w-14 h-14 bg-emerald-500 rounded-2xl flex items-center justify-center text-white"><Truck size={28} /></div>
+                 <div>
+                   <h3 className="text-2xl font-black font-serif italic">تسجيل توريد مواد</h3>
+                   <p className="text-white/40 text-[10px] font-bold uppercase tracking-widest mt-1">تُضاف الكمية للمخزن وتُسجل تكلفتها</p>
+                 </div>
+               </div>
+               <button onClick={() => setIsAddStockModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full"><X size={24} /></button>
+            </div>
+
+            <form onSubmit={handleAddStockSubmit} className="p-8 space-y-6 max-h-[80vh] overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2 md:col-span-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">المادة / المنتج</label>
+                  <select
+                    required
+                    className="w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold"
+                    value={addStockFormData.materialId}
+                    onChange={e => setAddStockFormData({...addStockFormData, materialId: e.target.value})}
+                  >
+                    <option value="">-- اختر --</option>
+                    <optgroup label="المواد الخام">
+                      {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
+                    </optgroup>
+                    <optgroup label="المنتجات الجاهزة">
+                      {products.filter(p => !p.recipe).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </optgroup>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">الكمية الواردة</label>
+                  <input 
+                    required
+                    type="number" 
+                    step="0.001"
+                    className="w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold"
+                    value={addStockFormData.quantity}
+                    onChange={e => setAddStockFormData({...addStockFormData, quantity: Number(e.target.value)})}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">التكلفة الواردة للمادة الواحدة (اختياري)</label>
+                  <input 
+                    type="number" 
+                    step="0.001"
+                    className="w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold"
+                    value={addStockFormData.cost}
+                    onChange={e => setAddStockFormData({...addStockFormData, cost: Number(e.target.value)})}
+                  />
+                </div>
+
+                <div className="space-y-2 md:col-span-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#6B4F45]">اسم المورد/رقم الفاتورة (اختياري)</label>
+                  <input 
+                    type="text" 
+                    className="w-full px-5 py-3.5 bg-[#F4E9E4]/30 border border-[#E8E2DE] rounded-xl outline-none focus:ring-2 focus:ring-[#D8A08A] font-bold"
+                    value={addStockFormData.supplier}
+                    onChange={e => setAddStockFormData({...addStockFormData, supplier: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <button 
+                  type="button"
+                  onClick={() => setIsAddStockModalOpen(false)}
+                  className="flex-1 py-4 border border-[#E8E2DE] rounded-2xl font-black uppercase tracking-widest text-[11px] text-[#6E6E6E] hover:bg-[#F4E9E4]"
+                >
+                  إلغاء
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase tracking-widest text-[11px] hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-600/20"
+                >
+                  تأكيد التوريد
                 </button>
               </div>
             </form>

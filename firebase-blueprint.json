@@ -1,0 +1,43 @@
+{
+  "entities": {
+    "Order": {
+      "title": "Order",
+      "description": "A customer order",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string" },
+        "clientName": { "type": "string" },
+        "items": { "type": "array" },
+        "totalPrice": { "type": "number" },
+        "status": { "type": "string" },
+        "source": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerId", "clientName", "items", "totalPrice", "status", "source", "createdAt"]
+    },
+    "Client": {
+      "title": "Client",
+      "description": "A registered customer or client",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "balance": { "type": "number" },
+        "totalUsageHours": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerId", "name", "phone", "balance", "totalUsageHours", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Stores all customer orders"
+    },
+    "/clients/{clientId}": {
+      "schema": { "$ref": "#/entities/Client" },
+      "description": "Stores registered clients"
+    }
+  }
+}

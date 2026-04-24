@@ -20,25 +20,8 @@ import {
 } from 'lucide-react';
 import { useCafeInventory } from '../context/CafeInventoryContext';
 import { useFinance } from '../context/FinanceContext';
-
-type OrderStatus = 'جديد' | 'قيد التحضير' | 'جاهز' | 'تم التسليم';
-
-interface CartItem {
-  id: string;
-  name: string;
-  price: number;
-  quantity: number;
-  extras: { name: string; price: number }[];
-}
-
-interface CafeOrder {
-  id: string;
-  clientName: string;
-  items: CartItem[];
-  totalPrice: number;
-  status: OrderStatus;
-  timestamp: Date;
-}
+import { CartItem } from '../context/OrderContext';
+import { useOrdersFirestore, OrderStatus } from '../hooks/useOrdersFirestore';
 
 const EXTRAS = [
   { name: 'إضافة إسبريسو', price: 0.500 },
@@ -50,19 +33,11 @@ const EXTRAS = [
 const CafeSystem: React.FC = () => {
   const { products, processOrder } = useCafeInventory();
   const { addTransaction } = useFinance();
+  const { orders, submitOrder, updateOrderStatus } = useOrdersFirestore();
   const [activeTab, setActiveTab] = useState<'menu' | 'orders'>('menu');
+  const [selectedCategory, setSelectedCategory] = useState<string>('الكل');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedClient, setSelectedClient] = useState<string>('');
-  const [orders, setOrders] = useState<CafeOrder[]>([
-    {
-      id: 'ORD-8821',
-      clientName: 'سارة خالد',
-      items: [{ id: '1', name: 'لاتيه', price: 18, quantity: 1, extras: [{ name: 'حليب نباتي', price: 3 }] }],
-      totalPrice: 2.100,
-      status: 'قيد التحضير',
-      timestamp: new Date()
-    }
-  ]);
 
   const [isExtrasModalOpen, setIsExtrasModalOpen] = useState(false);
   const [itemPendingExtras, setItemPendingExtras] = useState<any>(null);
@@ -113,36 +88,43 @@ const CafeSystem: React.FC = () => {
 
   const total = cart.reduce((acc, item) => acc + calculateItemTotal(item), 0);
 
-  const createOrder = () => {
-    const orderId = `ORD-${Math.floor(Math.random() * 9000) + 1000}`;
-    const newOrder: CafeOrder = {
-      id: orderId,
-      clientName: selectedClient || 'عميل عابر',
-      items: [...cart],
-      totalPrice: total,
-      status: 'جديد',
-      timestamp: new Date()
-    };
-    setOrders([newOrder, ...orders]);
-    processOrder(cart);
-    
-    if (total > 0) {
-      addTransaction({
-        type: 'INCOME',
-        category: 'CAFE_SALE',
-        amount: total,
-        description: `طلب كافيه - ${newOrder.clientName}`,
-        referenceId: orderId
+  const createOrder = async () => {
+    try {
+      const orderId = await submitOrder({
+        clientName: selectedClient || 'عميل عابر',
+        items: [...cart],
+        totalPrice: total,
+        source: 'in-store'
       });
-    }
+      
+      processOrder(cart);
+      
+      if (total > 0) {
+        addTransaction({
+          type: 'INCOME',
+          category: 'CAFE_SALE',
+          amount: total,
+          description: `طلب كافيه - ${selectedClient || 'عميل عابر'}`,
+          referenceId: orderId
+        });
+      }
 
-    setCart([]);
-    setSelectedClient('');
-    setActiveTab('orders');
+      setCart([]);
+      setSelectedClient('');
+      setActiveTab('orders');
+    } catch (error) {
+      console.error("Error creating order:", error);
+      alert('حدث خطأ أثناء إنشاء الطلب');
+    }
   };
 
-  const updateOrderStatus = (orderId: string, newStatus: OrderStatus) => {
-    setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+  const updateStatus = async (orderId: string, newStatus: OrderStatus) => {
+    try {
+      await updateOrderStatus(orderId, newStatus);
+    } catch (error) {
+      console.error("Error updating status:", error);
+      alert('حدث خطأ أثناء تحديث حالة الطلب');
+    }
   };
 
   const getStatusColor = (status: OrderStatus) => {
@@ -198,15 +180,18 @@ const CafeSystem: React.FC = () => {
           {/* Menu Selection Area */}
           <div className="lg:col-span-2 space-y-8">
             <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-              {['الكل', 'مشروبات ساخنة', 'مشروبات باردة', 'حلويات', 'سناكس'].map((cat, i) => (
-                <button key={i} className={`px-6 py-2.5 rounded-full text-[11px] font-black uppercase tracking-widest border transition-all whitespace-nowrap ${i === 0 ? 'bg-[#D8A08A] text-white border-[#D8A08A]' : 'bg-white text-[#6E6E6E] border-[#E8E2DE] hover:border-[#D8A08A] hover:text-[#D8A08A]'}`}>
+              {['الكل', 'قهوة ساخنة', 'قهوة باردة', 'حلويات', 'سناكس'].map((cat, i) => (
+                <button 
+                  key={i} 
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`px-6 py-2.5 rounded-full text-[11px] font-black uppercase tracking-widest border transition-all whitespace-nowrap ${selectedCategory === cat ? 'bg-[#D8A08A] text-white border-[#D8A08A]' : 'bg-white text-[#6E6E6E] border-[#E8E2DE] hover:border-[#D8A08A] hover:text-[#D8A08A]'}`}>
                   {cat}
                 </button>
               ))}
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-              {products.map((item, idx) => (
+              {products.filter(p => selectedCategory === 'الكل' || p.category === selectedCategory).map((item, idx) => (
                 <button 
                   key={idx}
                   onClick={() => handleItemClick(item)}
@@ -323,8 +308,13 @@ const CafeSystem: React.FC = () => {
             <div key={order.id} className="bg-white rounded-[32px] border border-[#E8E2DE] shadow-sm overflow-hidden flex flex-col animate-in slide-in-from-bottom-8 duration-500">
               <div className="p-6 border-b border-[#F4E9E4] flex justify-between items-center bg-[#F4E9E4]/10">
                 <div>
-                  <h4 className="font-serif italic font-black text-lg text-[#2C2A3A]">{order.id}</h4>
-                  <p className="text-[10px] text-[#6E6E6E] font-bold uppercase tracking-widest">{order.timestamp.toLocaleTimeString('ar-EG', {hour: '2-digit', minute:'2-digit'})}</p>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-serif italic font-black text-lg text-[#2C2A3A]">{order.id}</h4>
+                    {order.source === 'online' && (
+                      <span className="bg-[#D8A08A] text-white text-[8px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest animate-pulse">أونلاين</span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-[#6E6E6E] font-bold uppercase tracking-widest">{order.createdAt?.toDate().toLocaleTimeString('ar-EG', {hour: '2-digit', minute:'2-digit'})}</p>
                 </div>
                 <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border flex items-center gap-2 ${getStatusColor(order.status)}`}>
                   {getStatusIcon(order.status)}
@@ -367,7 +357,7 @@ const CafeSystem: React.FC = () => {
                 <div className="grid grid-cols-2 gap-2">
                   {order.status === 'جديد' && (
                     <button 
-                      onClick={() => updateOrderStatus(order.id, 'قيد التحضير')}
+                      onClick={() => updateStatus(order.id, 'قيد التحضير')}
                       className="col-span-2 py-3 bg-[#2C2A3A] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[#D8A08A] transition-all flex items-center justify-center gap-2"
                     >
                       <ChefHat size={14} /> بدء التحضير
@@ -375,7 +365,7 @@ const CafeSystem: React.FC = () => {
                   )}
                   {order.status === 'قيد التحضير' && (
                     <button 
-                      onClick={() => updateOrderStatus(order.id, 'جاهز')}
+                      onClick={() => updateStatus(order.id, 'جاهز')}
                       className="col-span-2 py-3 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-600 transition-all flex items-center justify-center gap-2"
                     >
                       <BellRing size={14} /> تنبيه الجاهزية
@@ -383,7 +373,7 @@ const CafeSystem: React.FC = () => {
                   )}
                   {order.status === 'جاهز' && (
                     <button 
-                      onClick={() => updateOrderStatus(order.id, 'تم التسليم')}
+                      onClick={() => updateStatus(order.id, 'تم التسليم')}
                       className="col-span-2 py-3 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all flex items-center justify-center gap-2"
                     >
                       <CheckCircle size={14} /> تم التسليم

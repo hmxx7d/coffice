@@ -1,0 +1,79 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. شبكة الأمان الأساسية: الرفض الافتراضي لأي مستند غير مصرح
+    match /{document=**} { 
+      allow read, write: if false; 
+    }
+
+    // --- الوظائف المساعدة الأساسية (Primitives) ---
+    function isSignedIn() { 
+      return request.auth != null; 
+    }
+    
+    // تعريف المدير: يمتلك بريداً إلكترونياً (نظراً لأن العملاء يستخدمون الحساب المجهول)
+    function isAdmin() { 
+      return isSignedIn() && request.auth.token.email != null; 
+    }
+    
+    function incoming() { 
+      return request.resource.data; 
+    }
+    
+    function existing() { 
+      return resource.data; 
+    }
+
+    // --- التحقق من الهيكلة (Blueprint Guard) ---
+    function isValidOrder(data) {
+      return data.keys().hasAll(['customerId', 'clientName', 'items', 'totalPrice', 'status', 'source', 'createdAt'])
+        && data.keys().size() == 7
+        && data.customerId == request.auth.uid // التحقق من هوية العميل
+        && data.clientName is string && data.clientName.size() <= 100
+        && data.items is list && data.items.size() <= 50 // منع إرهاق السعة
+        && data.totalPrice is number
+        && data.status is string && data.status in ['جديد', 'قيد التحضير', 'جاهز', 'تم التسليم', 'ملغي']
+        && data.source is string && data.source in ['in-store', 'online']
+        && data.createdAt == request.time; // تزامن الوقت لمنع تلاعب العميل
+    }
+
+    function isValidClient(data) {
+      return data.keys().hasAll(['customerId', 'name', 'phone', 'balance', 'totalUsageHours', 'createdAt'])
+        && data.keys().size() == 6
+        && data.customerId == request.auth.uid
+        && data.name is string && data.name.size() <= 100
+        && data.phone is string && data.phone.size() <= 20
+        && data.balance is number
+        && data.totalUsageHours is number
+        && data.createdAt == request.time;
+    }
+
+    // --- قواعد الطلبات ---
+    match /orders/{orderId} {
+      // السماح بإنشاء الطلب للمستخدم أو المدير بشرط تطابق الهيكلة الصحيحة تماماً
+      allow create: if isSignedIn() && isValidOrder(incoming());
+      
+      // العميل يرى طلباته فقط، والمدير يرى جميع الطلبات
+      allow read: if isSignedIn() && (resource.data.customerId == request.auth.uid || isAdmin());
+      
+      // التحديث يقتصر على المدير، ولا يُسمح بتعديل أي شيء سوى "حالة الطلب" (status)
+      allow update: if isAdmin() && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['status']) &&
+        incoming().status in ['جديد', 'قيد التحضير', 'جاهز', 'تم التسليم', 'ملغي']
+      );
+      
+      // يمنع حذف الطلبات تماماً للحفاظ على السجل المالي
+      allow delete: if false;
+    }
+
+    // --- قواعد العملاء ---
+    match /clients/{clientId} {
+      allow create: if isSignedIn() && isValidClient(incoming());
+      allow read: if isSignedIn() && (resource.data.customerId == request.auth.uid || isAdmin());
+      // Only admin can update balance/usage, etc., or user update own profile (leaving only admin for now for simplicity of not bypassing balance via update)
+      allow update: if isAdmin();
+      // Only admin can delete clients
+      allow delete: if isAdmin();
+    }
+  }
+}

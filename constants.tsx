@@ -3,11 +3,11 @@ import React from 'react';
 import { RoomType, RoomStatus, SubscriptionType } from './types';
 
 export const ROOM_TYPES_PRICING = {
-  [RoomType.SEMI_CLOSED]: 1,
-  [RoomType.CLASSROOM]: 10,
-  [RoomType.MEETING_ROOM_QUAD]: 3,
-  [RoomType.SINGLE_ROOM]: 2,
-  [RoomType.SINGLE_CLOSED]: 5, // Default for non-subscription
+  [RoomType.WORKSPACE]: 1,
+  [RoomType.WORKSHOP]: 10,
+  [RoomType.MEETING_ROOM]: 3,
+  [RoomType.PODCAST]: 2,
+  [RoomType.STUDIO]: 5,
 };
 
 export const SUBSCRIPTION_MODELS = [

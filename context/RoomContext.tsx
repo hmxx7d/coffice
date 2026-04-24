@@ -1,26 +1,51 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { collection, onSnapshot, query, doc, setDoc, deleteDoc, addDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import { Room, RoomType } from '../types';
 
 interface RoomContextType {
   rooms: Room[];
-  setRooms: React.Dispatch<React.SetStateAction<Room[]>>;
+  addRoom: (room: Omit<Room, 'id'>) => Promise<void>;
+  updateRoom: (roomId: string, updates: Partial<Room>) => Promise<void>;
+  deleteRoom: (roomId: string) => Promise<void>;
 }
-
-const INITIAL_ROOMS: Room[] = [
-  { id: '1', name: 'VIP 101', type: RoomType.SINGLE_CLOSED, hourlyPrice: 8, capacity: 1 },
-  { id: '2', name: 'Focus Desk 01', type: RoomType.SEMI_CLOSED, hourlyPrice: 3.5, capacity: 1 },
-  { id: '3', name: 'Academy Hall A', type: RoomType.CLASSROOM, hourlyPrice: 10, capacity: 20 },
-  { id: '4', name: 'Boardroom X', type: RoomType.MEETING_ROOM_QUAD, hourlyPrice: 3, capacity: 4 },
-  { id: '5', name: 'Private Pod 05', type: RoomType.SINGLE_ROOM, hourlyPrice: 2, capacity: 1 },
-];
 
 const RoomContext = createContext<RoomContextType | undefined>(undefined);
 
 export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [rooms, setRooms] = useState<Room[]>(INITIAL_ROOMS);
+  const [rooms, setRooms] = useState<Room[]>([]);
+
+  useEffect(() => {
+    const q = query(collection(db, 'rooms'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const roomsData: Room[] = [];
+      snapshot.forEach((docSnap) => {
+        roomsData.push({ id: docSnap.id, ...docSnap.data() } as Room);
+      });
+      setRooms(roomsData);
+    }, (error) => {
+      console.error("Error fetching rooms: ", error);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const addRoom = async (room: Omit<Room, 'id'>) => {
+    await addDoc(collection(db, 'rooms'), room);
+  };
+
+  const updateRoom = async (roomId: string, updates: Partial<Room>) => {
+    const docRef = doc(db, 'rooms', roomId);
+    await updateDoc(docRef, updates);
+  };
+
+  const deleteRoom = async (roomId: string) => {
+    const docRef = doc(db, 'rooms', roomId);
+    await deleteDoc(docRef);
+  };
 
   return (
-    <RoomContext.Provider value={{ rooms, setRooms }}>
+    <RoomContext.Provider value={{ rooms, addRoom, updateRoom, deleteRoom }}>
       {children}
     </RoomContext.Provider>
   );
@@ -33,3 +58,4 @@ export const useRooms = () => {
   }
   return context;
 };
+
